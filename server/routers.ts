@@ -144,72 +144,139 @@ export const appRouter = router({
         password: z.string().min(1, "パスワードを入力してください"),
       }))
       .mutation(async ({ ctx, input }) => {
-        // ユーザーをメールアドレスで検索
-        const user = await db.getUserByEmail(input.email);
-        
-        if (!user) {
-          throw new TRPCError({
-            code: "UNAUTHORIZED",
-            message: "メールアドレスまたはパスワードが正しくありません",
-          });
-        }
+        try {
+          // ユーザーをメールアドレスで検索
+          const user = await db.getUserByEmail(input.email);
+          
+          if (!user) {
+            throw new TRPCError({
+              code: "UNAUTHORIZED",
+              message: "メールアドレスまたはパスワードが正しくありません",
+            });
+          }
 
-        // パスワードハッシュがない場合（OAuthユーザーなど）はエラー
-        if (!user.passwordHash) {
-          throw new TRPCError({
-            code: "UNAUTHORIZED",
-            message: "このアカウントはID/パスワードログインに対応していません",
-          });
-        }
+          // パスワードハッシュがない場合（OAuthユーザーなど）はエラー
+          if (!user.passwordHash) {
+            throw new TRPCError({
+              code: "UNAUTHORIZED",
+              message: "このアカウントはID/パスワードログインに対応していません",
+            });
+          }
 
-        // パスワードを検証
-        const isValidPassword = await bcrypt.compare(input.password, user.passwordHash);
-        if (!isValidPassword) {
-          throw new TRPCError({
-            code: "UNAUTHORIZED",
-            message: "メールアドレスまたはパスワードが正しくありません",
-          });
-        }
+          // パスワードを検証
+          const isValidPassword = await bcrypt.compare(input.password, user.passwordHash);
+          if (!isValidPassword) {
+            throw new TRPCError({
+              code: "UNAUTHORIZED",
+              message: "メールアドレスまたはパスワードが正しくありません",
+            });
+          }
 
-        // セッショントークンを発行
-        const sessionToken = await sdk.signSession({
-          openId: user.openId,
-          appId: ENV.appId || "default-app",
-          name: user.name || "",
-        }, {
-          expiresInMs: ONE_YEAR_MS,
-        });
-
-        // 最終ログイン時刻を更新
-        await db.upsertUser({
-          openId: user.openId,
-          lastSignedIn: new Date(),
-        });
-
-        // クッキーにセッショントークンを設定
-        const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, sessionToken, {
-          ...cookieOptions,
-          maxAge: ONE_YEAR_MS,
-        });
-
-        return {
-          success: true,
-          user: {
-            id: user.id,
+          // セッショントークンを発行
+          const sessionToken = await sdk.signSession({
             openId: user.openId,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            organizationId: user.organizationId,
-          },
-        };
+            appId: ENV.appId || "default-app",
+            name: user.name || "",
+          }, {
+            expiresInMs: ONE_YEAR_MS,
+          });
+
+          // 最終ログイン時刻を更新
+          await db.upsertUser({
+            openId: user.openId,
+            lastSignedIn: new Date(),
+          });
+
+          // クッキーにセッショントークンを設定
+          const cookieOptions = getSessionCookieOptions(ctx.req);
+          ctx.res.cookie(COOKIE_NAME, sessionToken, {
+            ...cookieOptions,
+            maxAge: ONE_YEAR_MS,
+          });
+
+          return {
+            success: true,
+            user: {
+              id: user.id,
+              openId: user.openId,
+              name: user.name,
+              email: user.email,
+              role: user.role,
+              organizationId: user.organizationId,
+            },
+          };
+        } catch (error) {
+          // データベースエラーの場合
+          if (error instanceof TRPCError) {
+            throw error;
+          }
+          console.error("[Auth] Login error:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: error instanceof Error ? error.message : "ログイン処理中にエラーが発生しました",
+          });
+        }
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    changePassword: protectedProcedure
+      .input(z.object({
+        currentPassword: z.string().min(1, "現在のパスワードを入力してください"),
+        newPassword: z.string().min(8, "新しいパスワードは8文字以上である必要があります"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const user = ctx.user;
+        
+        if (!user) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "認証が必要です",
+          });
+        }
+
+        // ユーザーを取得（最新の情報を取得）
+        const dbUser = await db.getUserByOpenId(user.openId);
+        if (!dbUser) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "ユーザーが見つかりません",
+          });
+        }
+
+        // パスワードハッシュがない場合（OAuthユーザーなど）はエラー
+        if (!dbUser.passwordHash) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "このアカウントはID/パスワードログインに対応していません",
+          });
+        }
+
+        // 現在のパスワードを検証
+        const isValidPassword = await bcrypt.compare(input.currentPassword, dbUser.passwordHash);
+        if (!isValidPassword) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "現在のパスワードが正しくありません",
+          });
+        }
+
+        // 新しいパスワードをハッシュ化
+        const newPasswordHash = await bcrypt.hash(input.newPassword, 10);
+
+        // パスワードを更新
+        await db.upsertUser({
+          openId: user.openId,
+          passwordHash: newPasswordHash,
+        });
+
+        return {
+          success: true,
+          message: "パスワードが正常に変更されました",
+        };
+      }),
   }),
 
   // Bank balance operations

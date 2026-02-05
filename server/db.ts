@@ -130,8 +130,17 @@ export async function getUserByOpenId(openId: string) {
     return undefined;
   }
 
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  try {
+    const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+    return result.length > 0 ? result[0] : undefined;
+  } catch (error) {
+    console.error("[Database] Failed to get user by openId:", error);
+    if (error instanceof Error) {
+      console.error(`[Database] Error message: ${error.message}`);
+      console.error(`[Database] Stack trace: ${error.stack}`);
+    }
+    throw error;
+  }
 }
 
 export async function getUserByEmail(email: string) {
@@ -141,8 +150,17 @@ export async function getUserByEmail(email: string) {
     return undefined;
   }
 
-  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  try {
+    const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    return result.length > 0 ? result[0] : undefined;
+  } catch (error) {
+    console.error("[Database] Failed to get user by email:", error);
+    if (error instanceof Error) {
+      console.error(`[Database] Error message: ${error.message}`);
+      console.error(`[Database] Stack trace: ${error.stack}`);
+    }
+    throw error;
+  }
 }
 
 // Organization helpers
