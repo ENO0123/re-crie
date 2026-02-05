@@ -154,6 +154,7 @@ function HeadquartersLayoutContent({
   children: React.ReactNode;
 }) {
   const { user, logout } = useAuth();
+  const [, setLocation] = useLocation();
 
   return (
     <div className="min-h-screen w-full flex flex-col">
