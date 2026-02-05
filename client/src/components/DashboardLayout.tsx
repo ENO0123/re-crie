@@ -295,9 +295,12 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed ? (
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
-                  </span>
+                  <img 
+                    src="/logo.png" 
+                    alt="RE:crie" 
+                    className="h-6 w-auto"
+                    style={{ width: '80px', height: '24px', objectFit: 'contain' }}
+                  />
                 </div>
               ) : null}
             </div>
