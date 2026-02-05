@@ -7,6 +7,12 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import * as crypto from "node:crypto";
+
+// Node.js環境でcryptoをグローバルに設定（joseライブラリ用）
+if (typeof globalThis.crypto === "undefined") {
+  (globalThis as any).crypto = crypto.webcrypto || crypto;
+}
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
