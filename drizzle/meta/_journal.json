@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1764701409819,
+      "tag": "0000_reflective_human_fly",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1764701557366,
+      "tag": "0001_empty_overlord",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1764747286572,
+      "tag": "0002_nice_king_cobra",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1764780520473,
+      "tag": "0003_volatile_nitro",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1764921646064,
+      "tag": "0004_peaceful_zemo",
+      "breakpoints": true
+    }
+  ]
+}
