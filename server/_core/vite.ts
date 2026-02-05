@@ -8,27 +8,30 @@ import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
 
 // import.meta.dirnameの代替（ビルド後でも動作する）
-const getDirname = () => {
+const getDirname = (): string => {
   // 開発環境ではimport.meta.dirnameを使用
-  if (import.meta.dirname) {
+  if (import.meta.dirname && typeof import.meta.dirname === 'string') {
     return import.meta.dirname;
   }
   
   // 本番環境（esbuildでバンドル後）では、import.meta.urlから取得を試みる
   try {
     const url = import.meta.url;
-    if (url && url.startsWith('file://')) {
+    if (url && typeof url === 'string' && url.startsWith('file://')) {
       const filePath = fileURLToPath(url);
-      return path.dirname(filePath);
+      const dir = path.dirname(filePath);
+      if (dir && typeof dir === 'string') {
+        return dir;
+      }
     }
   } catch (e) {
     // フォールバック: プロセスカレントディレクトリを使用
     console.warn('[Vite] Failed to get dirname from import.meta.url, using process.cwd()');
   }
   
-  // 最終フォールバック: プロセスカレントディレクトリ + dist
-  // Railwayでは/app/dist/index.jsが実行されるので、/app/distがカレントディレクトリになる
-  return process.cwd();
+  // 最終フォールバック: プロセスカレントディレクトリ（必ず文字列を返す）
+  const cwd = process.cwd();
+  return cwd && typeof cwd === 'string' ? cwd : '/app';
 };
 
 export async function setupVite(app: Express, server: Server) {
@@ -78,48 +81,54 @@ export function serveStatic(app: Express) {
   // Railwayでは/app/dist/index.jsが実行され、/app/dist/publicが静的ファイルの場所
   // 開発環境では、server/_core/vite.tsから見て../../dist/public
   
-  let distPath: string;
   const cwd = process.cwd();
+  let distPath: string;
   
   if (process.env.NODE_ENV === "development") {
     const dirname = getDirname();
     distPath = path.resolve(dirname, "../..", "dist", "public");
   } else {
-    // 本番環境: 複数のパスを試す
-    const possiblePaths = [
-      // パターン1: dist/index.jsから見て、同じディレクトリのpublic
-      (() => {
-        try {
-          const url = import.meta.url;
-          if (url && typeof url === 'string') {
-            const filePath = fileURLToPath(url);
-            return path.resolve(path.dirname(filePath), "public");
-          }
-        } catch (e) {
-          // 無視
-        }
-        return null;
-      })(),
-      // パターン2: process.cwd()から見てdist/public（Railwayでは/app/dist/public）
-      path.resolve(cwd, "dist", "public"),
-      // パターン3: process.cwd()から見てpublic
-      path.resolve(cwd, "public"),
-      // パターン4: /app/dist/public（Railwayの固定パス）
-      "/app/dist/public",
-    ].filter((p): p is string => p !== null);
+    // 本番環境: Railwayでは/appがcwd、dist/index.jsが実行されるので、/app/dist/publicが正しい
+    // 複数のパスを試す（nullやundefinedを避けるため、必ず文字列を返す）
+    const possiblePaths: string[] = [];
     
-    // 存在するパスを見つける
-    distPath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0];
+    // パターン1: process.cwd()から見てdist/public（Railwayでは/app/dist/public）
+    possiblePaths.push(path.resolve(cwd, "dist", "public"));
+    
+    // パターン2: process.cwd()から見てpublic（フォールバック）
+    possiblePaths.push(path.resolve(cwd, "public"));
+    
+    // パターン3: /app/dist/public（Railwayの固定パス）
+    possiblePaths.push("/app/dist/public");
+    
+    // パターン4: import.meta.urlから取得を試みる（エラーをキャッチ）
+    try {
+      const url = import.meta.url;
+      if (url && typeof url === 'string' && url.startsWith('file://')) {
+        const filePath = fileURLToPath(url);
+        const dir = path.dirname(filePath);
+        possiblePaths.push(path.resolve(dir, "public"));
+      }
+    } catch (e) {
+      // 無視
+    }
+    
+    // 存在するパスを見つける、なければ最初のパスを使用
+    distPath = possiblePaths.find(p => p && fs.existsSync(p)) || possiblePaths[0];
+    
+    // distPathがundefinedやnullでないことを確認
+    if (!distPath || typeof distPath !== 'string') {
+      distPath = path.resolve(cwd, "dist", "public");
+    }
   }
   
   // デバッグ情報を出力
   console.log(`[Vite] serveStatic - distPath: ${distPath}`);
   console.log(`[Vite] serveStatic - NODE_ENV: ${process.env.NODE_ENV}`);
   console.log(`[Vite] serveStatic - process.cwd(): ${cwd}`);
-  console.log(`[Vite] serveStatic - import.meta.url: ${import.meta.url}`);
-  console.log(`[Vite] serveStatic - distPath exists: ${fs.existsSync(distPath)}`);
+  console.log(`[Vite] serveStatic - distPath exists: ${distPath ? fs.existsSync(distPath) : false}`);
   
-  if (!distPath || !fs.existsSync(distPath)) {
+  if (!distPath || typeof distPath !== 'string' || !fs.existsSync(distPath)) {
     console.error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
