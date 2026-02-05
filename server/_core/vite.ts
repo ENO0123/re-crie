@@ -3,8 +3,18 @@ import fs from "fs";
 import { type Server } from "http";
 import { nanoid } from "nanoid";
 import path from "path";
+import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
+
+// import.meta.dirnameの代替（ビルド後でも動作する）
+const getDirname = () => {
+  if (import.meta.dirname) {
+    return import.meta.dirname;
+  }
+  // フォールバック: import.meta.urlから取得
+  return path.dirname(fileURLToPath(import.meta.url));
+};
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
@@ -25,8 +35,9 @@ export async function setupVite(app: Express, server: Server) {
     const url = req.originalUrl;
 
     try {
+      const dirname = getDirname();
       const clientTemplate = path.resolve(
-        import.meta.dirname,
+        dirname,
         "../..",
         "client",
         "index.html"
@@ -48,14 +59,18 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
+  const dirname = getDirname();
   const distPath =
     process.env.NODE_ENV === "development"
-      ? path.resolve(import.meta.dirname, "../..", "dist", "public")
-      : path.resolve(import.meta.dirname, "public");
+      ? path.resolve(dirname, "../..", "dist", "public")
+      : path.resolve(dirname, "public");
+  
   if (!fs.existsSync(distPath)) {
     console.error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
+    console.error(`Current dirname: ${dirname}`);
+    console.error(`NODE_ENV: ${process.env.NODE_ENV}`);
   }
 
   app.use(express.static(distPath));
