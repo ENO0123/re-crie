@@ -18,6 +18,7 @@ import Budget from "./pages/Budget";
 import Loans from "./pages/Loans";
 import Login from "./pages/Login";
 import Headquarters from "./pages/Headquarters";
+import ChangePassword from "./pages/ChangePassword";
 
 function Router() {
   return (
@@ -154,6 +155,11 @@ function Router() {
       </Route>
       
       <Route path={"/login"} component={Login} />
+      <Route path={"/change-password"}>
+        <DashboardLayout>
+          <ChangePassword />
+        </DashboardLayout>
+      </Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

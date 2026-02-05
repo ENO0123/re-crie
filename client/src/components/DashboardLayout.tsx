@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Wallet, TrendingUp, TrendingDown, FileText, Settings, Receipt, Target, CreditCard, Building2, User } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Wallet, TrendingUp, TrendingDown, FileText, Settings, Receipt, Target, CreditCard, Building2, User, Lock } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -178,6 +178,15 @@ function HeadquartersLayoutContent({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
+            {user?.email && (
+              <DropdownMenuItem
+                onClick={() => setLocation('/change-password')}
+                className="cursor-pointer"
+              >
+                <Lock className="mr-2 h-4 w-4" />
+                <span>パスワード変更</span>
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={logout}
               className="cursor-pointer text-destructive focus:text-destructive"
@@ -375,6 +384,15 @@ function DashboardLayoutContent({
                   >
                     <Building2 className="mr-2 h-4 w-4" />
                     <span>本部管理画面</span>
+                  </DropdownMenuItem>
+                )}
+                {user?.email && (
+                  <DropdownMenuItem
+                    onClick={() => setLocation('/change-password')}
+                    className="cursor-pointer"
+                  >
+                    <Lock className="mr-2 h-4 w-4" />
+                    <span>パスワード変更</span>
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem
