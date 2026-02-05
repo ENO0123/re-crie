@@ -13,8 +13,18 @@ export function useAuth(options?: UseAuthOptions) {
     options ?? {};
   const utils = trpc.useUtils();
 
-  // モックアップ環境用: 環境変数が設定されていない場合はダミーユーザーを返す
-  const isMockupMode = !import.meta.env.VITE_OAUTH_PORTAL_URL || !import.meta.env.VITE_APP_ID;
+  // モックアップ環境用: ポート4000（デモモード）の場合のみモックユーザーを使用
+  // ポート4001（DB接続モード）では実際の認証を使用
+  // URLからポート番号を取得（ポートが明示されていない場合はデフォルトポートとみなす）
+  const getCurrentPort = () => {
+    if (typeof window === 'undefined') return '';
+    const port = window.location.port;
+    if (port) return port;
+    // ポートが空の場合は、プロトコルからデフォルトポートを推測
+    return window.location.protocol === 'https:' ? '443' : '80';
+  };
+  const currentPort = getCurrentPort();
+  const isMockupMode = currentPort === "4000" && (!import.meta.env.VITE_OAUTH_PORTAL_URL || !import.meta.env.VITE_APP_ID);
   
   const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,8 +26,28 @@ import { toast } from "sonner";
 import { Loader2, Search, Plus, Trash2, Edit } from "lucide-react";
 import { useLocation } from "wouter";
 
-export default function BillingData() {
-  const [, setLocation] = useLocation();
+export default function BillingData({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
+  const [location] = useLocation();
+  const { user } = useAuth();
+  
+  // URLから組織IDを取得（/:organizationId/billing形式）
+  const organizationId = useMemo(() => {
+    // プロップで渡された場合はそれを使用
+    if (propOrganizationId) {
+      return propOrganizationId;
+    }
+    // URLから組織IDを取得
+    const match = location.match(/^\/(\d+)\/billing$/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    // URLに組織IDが含まれていない場合、ユーザー情報から取得
+    if (user?.organizationId) {
+      return user.organizationId;
+    }
+    return undefined;
+  }, [location, propOrganizationId, user]);
+
   const [page, setPage] = useState(1);
   const [searchFilters, setSearchFilters] = useState({
     billingYearMonth: "",
@@ -36,6 +57,8 @@ export default function BillingData() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  
+  const utils = trpc.useUtils();
   
   const updateMutation = trpc.billing.update.useMutation({
     onSuccess: () => {
@@ -54,11 +77,13 @@ export default function BillingData() {
       ...searchFilters,
       page,
       pageSize: 20,
+      organizationId,
+    },
+    {
+      enabled: organizationId !== undefined, // organizationIdが設定されている場合のみクエリを実行
+      // モックアップモードでも実際のデータベースから取得するため、getMockupQueryOptionsは使用しない
     }
-    // モックアップモードでも実際のデータベースから取得するため、getMockupQueryOptionsは使用しない
   );
-
-  const utils = trpc.useUtils();
   
   const deleteMutation = trpc.billing.delete.useMutation({
     onSuccess: () => {
@@ -115,6 +140,21 @@ export default function BillingData() {
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
     );
   };
+
+  if (organizationId === undefined) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <p className="text-lg font-semibold mb-2">組織IDが設定されていません</p>
+          <p className="text-muted-foreground">
+            {user?.role === 'headquarters' 
+              ? '本部担当者の場合は、URLに組織IDを含めてください（例: /1/billing）'
+              : '組織IDを取得できませんでした。ページを再読み込みしてください。'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

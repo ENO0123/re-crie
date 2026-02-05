@@ -9,8 +9,9 @@ export const users = mysqlTable("users", {
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
+  passwordHash: varchar("passwordHash", { length: 255 }), // ID/パスワードログイン用（OAuthユーザーはnull）
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["admin", "editor", "viewer"]).default("viewer").notNull(),
+  role: mysqlEnum("role", ["admin", "editor", "viewer", "headquarters"]).default("viewer").notNull(),
   organizationId: int("organizationId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

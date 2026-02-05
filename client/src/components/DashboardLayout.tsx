@@ -21,8 +21,8 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Wallet, TrendingUp, TrendingDown, FileText, Settings, Receipt, Target, CreditCard } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { LayoutDashboard, LogOut, PanelLeft, Wallet, TrendingUp, TrendingDown, FileText, Settings, Receipt, Target, CreditCard, Building2, User } from "lucide-react";
+import { CSSProperties, useEffect, useRef, useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
@@ -54,19 +54,30 @@ export default function DashboardLayout({
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
   const { loading, user } = useAuth();
+  const [location] = useLocation();
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
   }, [sidebarWidth]);
 
+  // 本部管理画面の場合はサイドバーを非表示
+  const isHeadquartersPage = location === '/headquarters' && user?.role === 'headquarters';
+
   if (loading) {
     return <DashboardLayoutSkeleton />
   }
 
-  // モックアップ環境では認証をスキップ（useAuthでダミーユーザーを返すため、ここには到達しないはず）
+  // モックアップ環境では認証をスキップ（ポート4000の場合のみ）
   if (!user) {
-    // モックアップ環境では認証画面を表示しない（開発中のため）
-    const isMockupMode = !import.meta.env.VITE_OAUTH_PORTAL_URL || !import.meta.env.VITE_APP_ID;
+    // モックアップ環境では認証画面を表示しない（ポート4000の場合のみ）
+    const getCurrentPort = () => {
+      if (typeof window === 'undefined') return '';
+      const port = window.location.port;
+      if (port) return port;
+      return window.location.protocol === 'https:' ? '443' : '80';
+    };
+    const currentPort = getCurrentPort();
+    const isMockupMode = currentPort === "4000" && (!import.meta.env.VITE_OAUTH_PORTAL_URL || !import.meta.env.VITE_APP_ID);
     if (isMockupMode) {
       // モックアップ環境では、認証なしでコンテンツを表示
       return (
@@ -90,9 +101,9 @@ export default function DashboardLayout({
           <Button
             onClick={() => {
               const loginUrl = getLoginUrl();
-              // /loginの場合は、認証が必要なことを表示
+              // /loginの場合は、直接ログインページにリダイレクト
               if (loginUrl === "/login") {
-                alert("モックアップ環境では認証は不要です。環境変数を設定してください。");
+                window.location.href = "/login";
                 return;
               }
               window.location.href = loginUrl;
@@ -104,6 +115,15 @@ export default function DashboardLayout({
           </Button>
         </div>
       </div>
+    );
+  }
+
+  // 本部管理画面の場合はSidebarProviderを使わない
+  if (isHeadquartersPage) {
+    return (
+      <HeadquartersLayoutContent>
+        {children}
+      </HeadquartersLayoutContent>
     );
   }
 
@@ -127,6 +147,54 @@ type DashboardLayoutContentProps = {
   setSidebarWidth: (width: number) => void;
 };
 
+// 本部管理画面用のレイアウト（サイドバーなし）
+function HeadquartersLayoutContent({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const { user, logout } = useAuth();
+
+  return (
+    <div className="min-h-screen w-full flex flex-col">
+      {/* ヘッダー部分（アカウントボタンのみ） */}
+      <header className="w-full border-b h-16 flex items-center justify-end px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-accent/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Avatar className="h-9 w-9 border shrink-0">
+                <AvatarFallback className="text-xs font-medium">
+                  {user?.name?.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0 hidden sm:block">
+                <p className="text-sm font-medium truncate leading-none">
+                  {user?.name || "-"}
+                </p>
+                <p className="text-xs text-muted-foreground truncate mt-1.5">
+                  {user?.email || "-"}
+                </p>
+              </div>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem
+              onClick={logout}
+              className="cursor-pointer text-destructive focus:text-destructive"
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              <span>Sign out</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </header>
+      
+      {/* コンテンツエリア（全幅） */}
+      <main className="flex-1 w-full p-4">{children}</main>
+    </div>
+  );
+}
+
 function DashboardLayoutContent({
   children,
   setSidebarWidth,
@@ -137,8 +205,40 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
+
+  // URLから組織IDを取得（/:organizationId/...形式の場合）
+  const organizationId = useMemo(() => {
+    const match = location.match(/^\/(\d+)\//);
+    return match ? parseInt(match[1], 10) : null;
+  }, [location]);
+
+  // 組織IDを含むURLに遷移するヘルパー関数
+  const navigateWithOrgId = (path: string) => {
+    if (organizationId) {
+      // 組織IDが既にURLに含まれている場合は、その組織IDを使って遷移
+      setLocation(`/${organizationId}${path}`);
+    } else if (user?.organizationId) {
+      // 組織IDがURLに含まれていないが、ユーザーに組織IDがある場合はそれを使用
+      setLocation(`/${user.organizationId}${path}`);
+    } else {
+      // それ以外の場合は通常のパスに遷移
+      setLocation(path);
+    }
+  };
+
+  // アクティブなメニューアイテムを判定（組織IDを含むパスも考慮）
+  const activeMenuItem = useMemo(() => {
+    const normalizedLocation = organizationId 
+      ? location.replace(`/${organizationId}`, '')
+      : location;
+    return menuItems.find(item => {
+      if (item.path === '/') {
+        return normalizedLocation === '/' || normalizedLocation === `/${organizationId}/dashboard` || normalizedLocation.match(/^\/(\d+)\/dashboard$/);
+      }
+      return normalizedLocation === item.path || normalizedLocation === `/${organizationId}${item.path}` || normalizedLocation.match(new RegExp(`^/(\\d+)${item.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+    });
+  }, [location, organizationId]);
 
   useEffect(() => {
     if (isCollapsed) {
@@ -205,13 +305,32 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
+              {/* 本部担当者の場合のみ本部管理画面へのリンクを表示 */}
+              {user?.role === 'headquarters' && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={location === '/headquarters'}
+                    onClick={() => setLocation('/headquarters')}
+                    tooltip="本部管理画面"
+                    className={`h-10 transition-all font-normal`}
+                  >
+                    <Building2
+                      className={`h-4 w-4 ${location === '/headquarters' ? "text-primary" : ""}`}
+                    />
+                    <span>本部管理画面</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               {menuItems.map(item => {
-                const isActive = location === item.path;
+                const normalizedPath = item.path === '/' ? '/dashboard' : item.path;
+                const isActive = organizationId
+                  ? location === `/${organizationId}${normalizedPath}`
+                  : location === item.path;
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
                       isActive={isActive}
-                      onClick={() => setLocation(item.path)}
+                      onClick={() => navigateWithOrgId(normalizedPath)}
                       tooltip={item.label}
                       className={`h-10 transition-all font-normal`}
                     >
@@ -246,6 +365,15 @@ function DashboardLayoutContent({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
+                {user?.role === 'headquarters' && (
+                  <DropdownMenuItem
+                    onClick={() => setLocation('/headquarters')}
+                    className="cursor-pointer"
+                  >
+                    <Building2 className="mr-2 h-4 w-4" />
+                    <span>本部管理画面</span>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   onClick={logout}
                   className="cursor-pointer text-destructive focus:text-destructive"

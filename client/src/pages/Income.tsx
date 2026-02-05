@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { isMockupMode, getMockupQueryOptions, mockupData } from "@/lib/mockup";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,23 @@ const incomeFields = [
   { key: "otherNonBusinessIncome", label: "【その他】事業外収入" },
 ];
 
-export default function Income() {
+export default function Income({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
+  const [location] = useLocation();
+  
+  // URLから組織IDを取得（/:organizationId/income形式）
+  const organizationId = useMemo(() => {
+    // プロップで渡された場合はそれを使用
+    if (propOrganizationId) {
+      return propOrganizationId;
+    }
+    // URLから組織IDを取得
+    const match = location.match(/^\/(\d+)\/income$/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    return undefined;
+  }, [location, propOrganizationId]);
+
   const [yearMonth, setYearMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -33,7 +50,7 @@ export default function Income() {
   );
 
   const { data: existingData, isLoading } = trpc.income.getByYearMonth.useQuery(
-    { yearMonth },
+    { yearMonth, organizationId },
     { 
       enabled: !isMockupMode && !!yearMonth,
       ...getMockupQueryOptions(null)
@@ -41,7 +58,7 @@ export default function Income() {
   );
 
   const { data: historyData, refetch: refetchHistory } = trpc.income.list.useQuery(
-    { limit: 12 },
+    { limit: 12, organizationId },
     isMockupMode 
       ? {
           enabled: false,
@@ -87,6 +104,7 @@ export default function Income() {
     upsertMutation.mutate({
       yearMonth,
       ...formData,
+      organizationId,
     });
   };
 

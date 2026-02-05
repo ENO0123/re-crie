@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { isMockupMode, getMockupQueryOptions } from "@/lib/mockup";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,23 @@ import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 import type { Loan } from "@shared/types";
 
-export default function Loans() {
+export default function Loans({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
+  const [location] = useLocation();
+  
+  // URLから組織IDを取得（/:organizationId/loans形式）
+  const organizationId = useMemo(() => {
+    // プロップで渡された場合はそれを使用
+    if (propOrganizationId) {
+      return propOrganizationId;
+    }
+    // URLから組織IDを取得
+    const match = location.match(/^\/(\d+)\/loans$/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    return undefined;
+  }, [location, propOrganizationId]);
+
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isEffectiveDateDialogOpen, setIsEffectiveDateDialogOpen] = useState(false);
@@ -26,7 +43,7 @@ export default function Loans() {
   const utils = trpc.useUtils();
   // 借入返済管理はモックアップモードでもデータベースから取得する
   const { data: loans, isLoading, refetch, error } = trpc.loan.list.useQuery(
-    undefined,
+    organizationId ? { organizationId } : undefined,
     {
       enabled: true, // 常に有効化（モックアップモードでもデータベースから取得）
     }
@@ -170,6 +187,7 @@ export default function Loans() {
       initialBorrowingAmount: formData.initialBorrowingAmount,
       repaymentPrincipal: formData.repaymentPrincipal,
       repaymentDueDate: parseInt(formData.repaymentDueDate),
+      organizationId,
       effectiveFrom: effectiveDate,
     });
   };

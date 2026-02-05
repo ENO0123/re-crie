@@ -16,10 +16,92 @@ import Factoring from "./pages/Factoring";
 import Reports from "./pages/Reports";
 import Budget from "./pages/Budget";
 import Loans from "./pages/Loans";
+import Login from "./pages/Login";
+import Headquarters from "./pages/Headquarters";
 
 function Router() {
   return (
     <Switch>
+      {/* 本部管理画面 */}
+      <Route path={"/headquarters"}>
+        <DashboardLayout>
+          <Headquarters />
+        </DashboardLayout>
+      </Route>
+      
+      {/* 各社アカウント用のルート（組織IDを含む） */}
+      <Route path={"/:organizationId/dashboard"}>
+        {(params) => (
+          <DashboardLayout>
+            <Dashboard organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/:organizationId/bank-balance"}>
+        {(params) => (
+          <DashboardLayout>
+            <BankBalance organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/:organizationId/income"}>
+        {(params) => (
+          <DashboardLayout>
+            <Income organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/:organizationId/expense"}>
+        {(params) => (
+          <DashboardLayout>
+            <Expense organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/:organizationId/billing"}>
+        {(params) => (
+          <DashboardLayout>
+            <BillingData organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/:organizationId/billing/csv-upload"}>
+        {(params) => (
+          <DashboardLayout>
+            <CSVUpload organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/:organizationId/factoring"}>
+        {(params) => (
+          <DashboardLayout>
+            <Factoring organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/:organizationId/reports"}>
+        {(params) => (
+          <DashboardLayout>
+            <Reports organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/:organizationId/budget"}>
+        {(params) => (
+          <DashboardLayout>
+            <Budget organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/:organizationId/loans"}>
+        {(params) => (
+          <DashboardLayout>
+            <Loans organizationId={parseInt(params.organizationId, 10)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      
+      {/* 後方互換性のため、既存のルートも残す（各社アカウント用） */}
       <Route path={"/"}>
         <DashboardLayout>
           <Dashboard />
@@ -70,6 +152,8 @@ function Router() {
           <Loans />
         </DashboardLayout>
       </Route>
+      
+      <Route path={"/login"} component={Login} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

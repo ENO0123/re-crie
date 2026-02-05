@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -60,12 +61,28 @@ const expenseLabels: Record<string, string> = {
   otherNonBusinessExpense: "その他(事業外支出)",
 };
 
-export default function Reports() {
+export default function Reports({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
+  const [location] = useLocation();
+  
+  // URLから組織IDを取得（/:organizationId/reports形式）
+  const organizationId = useMemo(() => {
+    // プロップで渡された場合はそれを使用
+    if (propOrganizationId) {
+      return propOrganizationId;
+    }
+    // URLから組織IDを取得
+    const match = location.match(/^\/(\d+)\/reports$/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    return undefined;
+  }, [location, propOrganizationId]);
+
   const last12Months = generateLast12Months();
   
   // 月ごとのステータスを取得
   const { data: monthStatuses, isLoading: loadingStatuses } = trpc.monthStatus.list.useQuery(
-    { yearMonths: last12Months },
+    { yearMonths: last12Months, organizationId },
     {
       ...getMockupQueryOptions(mockupData.monthStatuses),
     }
@@ -113,8 +130,8 @@ export default function Reports() {
         last12Months.map((yearMonth) => {
           const status = effectiveStatusMap.get(yearMonth) || "actual";
           return status === "actual"
-            ? t.income.getByYearMonth({ yearMonth })
-            : t.income.getByStatus({ yearMonth, status });
+            ? t.income.getByYearMonth({ yearMonth, organizationId })
+            : t.income.getByStatus({ yearMonth, status, organizationId });
         })
       );
   
@@ -130,8 +147,8 @@ export default function Reports() {
         last12Months.map((yearMonth) => {
           const status = effectiveStatusMap.get(yearMonth) || "actual";
           return status === "actual"
-            ? t.expense.getByYearMonth({ yearMonth })
-            : t.expense.getByStatus({ yearMonth, status });
+            ? t.expense.getByYearMonth({ yearMonth, organizationId })
+            : t.expense.getByStatus({ yearMonth, status, organizationId });
         })
       );
 

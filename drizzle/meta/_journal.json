@@ -36,6 +36,20 @@
       "when": 1764921646064,
       "tag": "0004_peaceful_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1770296554404,
+      "tag": "0005_outgoing_spirit",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1770297546845,
+      "tag": "0006_white_mongoose",
+      "breakpoints": true
     }
   ]
 }

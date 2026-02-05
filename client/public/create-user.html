@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ユーザー作成ツール</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 500px;
+      width: 100%;
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 24px;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+    .info-box {
+      background: #f5f5f5;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    .info-box h3 {
+      color: #333;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .info-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      font-size: 13px;
+    }
+    .info-label {
+      color: #666;
+      font-weight: 500;
+    }
+    .info-value {
+      color: #333;
+      font-family: monospace;
+    }
+    button {
+      width: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 8px;
+      display: none;
+    }
+    .result.success {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+      display: block;
+    }
+    .result.error {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+      display: block;
+    }
+    .result pre {
+      margin-top: 10px;
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      border-top-color: transparent;
+      animation: spin 0.8s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 ユーザー作成ツール</h1>
+    <p class="subtitle">開発環境用ユーザー作成ツール</p>
+    
+    <div class="info-box">
+      <h3>作成するユーザー情報</h3>
+      <div class="info-item">
+        <span class="info-label">アカウント名:</span>
+        <span class="info-value">RECARE管理者</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">メールアドレス:</span>
+        <span class="info-value">r.enomoto@re-care.me</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">パスワード:</span>
+        <span class="info-value">ryoe0123</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">ロール:</span>
+        <span class="info-value">admin</span>
+      </div>
+    </div>
+
+    <button id="createButton" onclick="createUser()">
+      ユーザーを作成
+    </button>
+
+    <div id="result" class="result"></div>
+  </div>
+
+  <script>
+    async function createUser() {
+      const button = document.getElementById('createButton');
+      const resultDiv = document.getElementById('result');
+      
+      // ボタンを無効化
+      button.disabled = true;
+      button.innerHTML = '<span class="loading"></span>ユーザーを作成中...';
+      resultDiv.className = 'result';
+      resultDiv.innerHTML = '';
+
+      const email = 'r.enomoto@re-care.me';
+      const password = 'ryoe0123';
+      const name = 'RECARE管理者';
+
+      try {
+        // 開発サーバーのURLを取得（現在のページのホストを使用）
+        const baseUrl = window.location.origin;
+        // tRPCのHTTPエンドポイント形式: /api/trpc/{procedure}
+        const apiUrl = `${baseUrl}/api/trpc/auth.createUser`;
+        
+        const requestBody = {
+          json: {
+            email,
+            password,
+            name,
+          },
+        };
+        
+        console.log('API URL:', apiUrl);
+        console.log('Request body:', requestBody);
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include', // クッキーを含める
+          body: JSON.stringify(requestBody),
+        });
+        
+        console.log('Response status:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+        if (!response.ok) {
+          let errorText = '';
+          try {
+            errorText = await response.text();
+          } catch (e) {
+            errorText = `レスポンスの読み取りに失敗しました: ${e}`;
+          }
+          throw new Error(`HTTP error! status: ${response.status}\n${errorText}`);
+        }
+
+        let data;
+        try {
+          const responseText = await response.text();
+          console.log('Response text:', responseText);
+          data = JSON.parse(responseText);
+        } catch (e) {
+          throw new Error(`レスポンスのパースに失敗しました: ${e.message}\nレスポンス: ${await response.text()}`);
+        }
+        
+        // 成功メッセージを表示
+        resultDiv.className = 'result success';
+        resultDiv.innerHTML = `
+          <strong>✅ ユーザー作成成功！</strong>
+          <pre>${JSON.stringify(data, null, 2)}</pre>
+          <p style="margin-top: 10px; font-size: 13px;">
+            <strong>ログイン情報:</strong><br>
+            ID: ${email}<br>
+            パスワード: ${password}
+          </p>
+        `;
+      } catch (error) {
+        // エラーメッセージを表示
+        resultDiv.className = 'result error';
+        resultDiv.innerHTML = `
+          <strong>❌ エラーが発生しました</strong>
+          <pre>${error.message}</pre>
+          <p style="margin-top: 10px; font-size: 13px;">
+            <strong>💡 確認事項:</strong><br>
+            1. 開発サーバーが起動しているか確認してください<br>
+            2. このページを開発サーバー経由で開いているか確認してください<br>
+            <code style="background: #fff; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-top: 5px;">
+              pnpm dev
+            </code>
+          </p>
+        `;
+      } finally {
+        // ボタンを再有効化
+        button.disabled = false;
+        button.innerHTML = 'ユーザーを作成';
+      }
+    }
+
+    // ページ読み込み時に開発サーバーが起動しているか確認
+    window.addEventListener('load', async () => {
+      try {
+        const response = await fetch('/api/trpc/auth.me');
+        if (response.ok) {
+          console.log('✅ 開発サーバーに接続できました');
+        }
+      } catch (error) {
+        console.warn('⚠️ 開発サーバーに接続できません。開発サーバーを起動してください。');
+      }
+    });
+  </script>
+</body>
+</html>

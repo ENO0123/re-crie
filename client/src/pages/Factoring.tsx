@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { getMockupQueryOptions, mockupData } from "@/lib/mockup";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 import { Loader2, Settings } from "lucide-react";
 
-export default function Factoring() {
+export default function Factoring({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
+  const [location] = useLocation();
+  
+  // URLから組織IDを取得（/:organizationId/factoring形式）
+  const organizationId = useMemo(() => {
+    // プロップで渡された場合はそれを使用
+    if (propOrganizationId) {
+      return propOrganizationId;
+    }
+    // URLから組織IDを取得
+    const match = location.match(/^\/(\d+)\/factoring$/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    return undefined;
+  }, [location, propOrganizationId]);
+
   const [formData, setFormData] = useState({
     factoringRate: "8000",
     remainingRate: "2000",
@@ -19,7 +36,7 @@ export default function Factoring() {
   });
 
   const { data: setting, isLoading } = trpc.factoring.getSetting.useQuery(
-    undefined,
+    organizationId ? { organizationId } : undefined,
     getMockupQueryOptions(mockupData.factoringSetting)
   );
 
@@ -56,6 +73,7 @@ export default function Factoring() {
       usageFee: parseInt(formData.usageFee),
       paymentDay: parseInt(formData.paymentDay),
       remainingPaymentDay: parseInt(formData.remainingPaymentDay),
+      organizationId,
     });
   };
 

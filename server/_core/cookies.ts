@@ -39,10 +39,14 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  // localhostの場合はsameSiteをlaxに設定（secureがfalseでも動作する）
+  const isLocalhost = LOCAL_HOSTS.has(req.hostname) || req.hostname === "localhost" || req.hostname === "127.0.0.1";
+  const sameSite = isLocalhost ? "lax" : "none";
+  
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    sameSite: sameSite as "lax" | "none" | "strict",
     secure: isSecureRequest(req),
   };
 }

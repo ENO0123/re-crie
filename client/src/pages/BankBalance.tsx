@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { isMockupMode, getMockupQueryOptions, mockupData } from "@/lib/mockup";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 import { Loader2, Edit } from "lucide-react";
 
-export default function BankBalance() {
+export default function BankBalance({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
+  const [location] = useLocation();
+  
+  // URLから組織IDを取得（/:organizationId/bank-balance形式）
+  const organizationId = useMemo(() => {
+    // プロップで渡された場合はそれを使用
+    if (propOrganizationId) {
+      return propOrganizationId;
+    }
+    // URLから組織IDを取得
+    const match = location.match(/^\/(\d+)\/bank-balance$/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    return undefined;
+  }, [location, propOrganizationId]);
+
   const [yearMonth, setYearMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -23,7 +40,7 @@ export default function BankBalance() {
   });
 
   const { data: existingData, isLoading } = trpc.bankBalance.getByYearMonth.useQuery(
-    { yearMonth },
+    { yearMonth, organizationId },
     { 
       enabled: !isMockupMode && !!yearMonth,
       ...getMockupQueryOptions(null)
@@ -31,7 +48,7 @@ export default function BankBalance() {
   );
 
   const { data: historyData, refetch: refetchHistory } = trpc.bankBalance.list.useQuery(
-    { limit: 12 },
+    { limit: 12, organizationId },
     isMockupMode 
       ? {
           enabled: false,

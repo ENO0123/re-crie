@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { useLocation } from "wouter";
 import {
   LineChart,
   Line,
@@ -172,10 +173,38 @@ const CustomLegend = ({
   );
 };
 
-export default function Dashboard() {
-  const { data: bankBalances, isLoading: loadingBalances } = trpc.bankBalance.list.useQuery({ limit: 12 });
-  const { data: incomeRecords, isLoading: loadingIncome } = trpc.income.list.useQuery({ limit: 12 });
-  const { data: expenseRecords, isLoading: loadingExpense } = trpc.expense.list.useQuery({ limit: 12 });
+export default function Dashboard({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
+  const [location] = useLocation();
+  
+  // プロップから、またはURLから組織IDを取得（本部担当者用）
+  const organizationId = useMemo(() => {
+    // プロップで渡された場合はそれを使用
+    if (propOrganizationId) {
+      return propOrganizationId;
+    }
+    // URLから組織IDを取得（/:organizationId/dashboard形式）
+    const match = location.match(/^\/(\d+)\/dashboard$/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    // クエリパラメータから組織IDを取得（後方互換性のため）
+    const params = new URLSearchParams(window.location.search);
+    const orgId = params.get('organizationId');
+    return orgId ? parseInt(orgId, 10) : undefined;
+  }, [location, propOrganizationId]);
+
+  const { data: bankBalances, isLoading: loadingBalances } = trpc.bankBalance.list.useQuery({ 
+    limit: 12,
+    organizationId,
+  });
+  const { data: incomeRecords, isLoading: loadingIncome } = trpc.income.list.useQuery({ 
+    limit: 12,
+    organizationId,
+  });
+  const { data: expenseRecords, isLoading: loadingExpense } = trpc.expense.list.useQuery({ 
+    limit: 12,
+    organizationId,
+  });
 
   const isLoading = loadingBalances || loadingIncome || loadingExpense;
 

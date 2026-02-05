@@ -81,6 +81,16 @@ DATABASE_URL=<MySQLサービスのDATABASE_URL>
 JWT_SECRET=<ランダムな秘密鍵（本番環境用）>
 ```
 
+**JWT_SECRETの生成方法**:
+- **Node.js**: `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+- **OpenSSL**: `openssl rand -hex 64`
+- **オンラインツール**: [generate-secret.vercel.app](https://generate-secret.vercel.app/64)
+
+**重要**: 
+- 開発環境と本番環境で**必ず異なる値**を使用してください
+- 推測されにくいランダムな文字列（最低32文字以上、推奨64文字以上）を使用してください
+- この値が漏洩すると、攻撃者が任意のJWTトークンを偽造できる可能性があります
+
 #### オプション環境変数（必要に応じて設定）
 
 ```

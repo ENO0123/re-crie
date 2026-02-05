@@ -1,4 +1,4 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
@@ -8,26 +8,203 @@ import * as db from "./db";
 import { normalizeNumericInput, parseYYYYMM, formatYYYYMM } from "../shared/utils";
 import { calculateIncomeByStatus, calculateExpenseByStatus } from "./statusCalculator";
 import { getMonthStatus, getMonthStatuses, upsertMonthStatus } from "./db";
+import { sdk } from "./_core/sdk";
+import { ENV } from "./_core/env";
+import bcrypt from "bcryptjs";
 
 // Role-based procedures
 const editorProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== 'admin' && ctx.user.role !== 'editor') {
+  if (ctx.user.role !== 'admin' && ctx.user.role !== 'editor' && ctx.user.role !== 'headquarters') {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Editor role required' });
   }
   return next({ ctx });
 });
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== 'admin') {
+  if (ctx.user.role !== 'admin' && ctx.user.role !== 'headquarters') {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin role required' });
   }
   return next({ ctx });
 });
 
+const headquartersProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== 'headquarters') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Headquarters role required' });
+  }
+  return next({ ctx });
+});
+
+// データアクセス制御ヘルパー関数
+function getEffectiveOrganizationId(user: { role: string; organizationId: number | null }, requestedOrgId?: number | null): number {
+  // 本部担当者は全組織にアクセス可能（組織IDの指定が必要）
+  if (user.role === 'headquarters') {
+    if (!requestedOrgId) {
+      throw new TRPCError({ 
+        code: 'BAD_REQUEST', 
+        message: '本部担当者は組織IDの指定が必要です。クエリパラメータにorganizationIdを指定してください。' 
+      });
+    }
+    return requestedOrgId;
+  }
+  
+  // 各社アカウントは自分の組織のみアクセス可能
+  if (!user.organizationId) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: '組織が設定されていません' });
+  }
+  
+  // 他社の組織IDを指定された場合はエラー（各社アカウントは他社のデータにアクセス不可）
+  if (requestedOrgId && requestedOrgId !== user.organizationId) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'この組織へのアクセスは許可されていません' });
+  }
+  
+  // 組織IDが指定されていない場合は、ユーザーの組織IDを使用
+  return user.organizationId;
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    // 開発環境用: ユーザー作成エンドポイント
+    createUser: publicProcedure
+      .input(z.object({
+        email: z.string().email("有効なメールアドレスを入力してください"),
+        password: z.string().min(1, "パスワードを入力してください"),
+        name: z.string().min(1, "名前を入力してください"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // 開発環境でのみ許可
+        if (ENV.isProduction) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "このエンドポイントは開発環境でのみ使用できます",
+          });
+        }
+
+        // 既存ユーザーをチェック
+        const existingUser = await db.getUserByEmail(input.email);
+        if (existingUser) {
+          // 既存ユーザーのパスワードを更新
+          const passwordHash = await bcrypt.hash(input.password, 10);
+          await db.upsertUser({
+            openId: existingUser.openId,
+            email: input.email,
+            name: input.name,
+            passwordHash: passwordHash,
+            role: "admin",
+          });
+          return {
+            success: true,
+            message: "既存ユーザーのパスワードを更新しました",
+            user: {
+              id: existingUser.id,
+              openId: existingUser.openId,
+              name: input.name,
+              email: input.email,
+              role: "admin",
+            },
+          };
+        }
+
+        // 新規ユーザーを作成
+        const passwordHash = await bcrypt.hash(input.password, 10);
+        const openId = `email:${input.email}`;
+        
+        await db.upsertUser({
+          openId: openId,
+          email: input.email,
+          name: input.name,
+          passwordHash: passwordHash,
+          role: "admin",
+        });
+
+        const createdUser = await db.getUserByEmail(input.email);
+        if (!createdUser) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "ユーザーの作成に失敗しました",
+          });
+        }
+
+        return {
+          success: true,
+          message: "ユーザーが正常に作成されました",
+          user: {
+            id: createdUser.id,
+            openId: createdUser.openId,
+            name: createdUser.name,
+            email: createdUser.email,
+            role: createdUser.role,
+          },
+        };
+      }),
+    login: publicProcedure
+      .input(z.object({
+        email: z.string().email("有効なメールアドレスを入力してください"),
+        password: z.string().min(1, "パスワードを入力してください"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // ユーザーをメールアドレスで検索
+        const user = await db.getUserByEmail(input.email);
+        
+        if (!user) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "メールアドレスまたはパスワードが正しくありません",
+          });
+        }
+
+        // パスワードハッシュがない場合（OAuthユーザーなど）はエラー
+        if (!user.passwordHash) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "このアカウントはID/パスワードログインに対応していません",
+          });
+        }
+
+        // パスワードを検証
+        const isValidPassword = await bcrypt.compare(input.password, user.passwordHash);
+        if (!isValidPassword) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "メールアドレスまたはパスワードが正しくありません",
+          });
+        }
+
+        // セッショントークンを発行
+        const sessionToken = await sdk.signSession({
+          openId: user.openId,
+          appId: ENV.appId || "default-app",
+          name: user.name || "",
+        }, {
+          expiresInMs: ONE_YEAR_MS,
+        });
+
+        // 最終ログイン時刻を更新
+        await db.upsertUser({
+          openId: user.openId,
+          lastSignedIn: new Date(),
+        });
+
+        // クッキーにセッショントークンを設定
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return {
+          success: true,
+          user: {
+            id: user.id,
+            openId: user.openId,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            organizationId: user.organizationId,
+          },
+        };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -38,21 +215,23 @@ export const appRouter = router({
   // Bank balance operations
   bankBalance: router({
     list: protectedProcedure
-      .input(z.object({ limit: z.number().optional() }))
+      .input(z.object({ 
+        limit: z.number().optional(),
+        organizationId: z.number().optional(), // 本部担当者用
+      }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        return db.getBankBalances(ctx.user.organizationId, input.limit);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        return db.getBankBalances(orgId, input.limit);
       }),
     
     getByYearMonth: protectedProcedure
-      .input(z.object({ yearMonth: z.string() }))
+      .input(z.object({ 
+        yearMonth: z.string(),
+        organizationId: z.number().optional(), // 本部担当者用
+      }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        return db.getBankBalanceByYearMonth(ctx.user.organizationId, input.yearMonth);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        return db.getBankBalanceByYearMonth(orgId, input.yearMonth);
       }),
     
     upsert: editorProcedure
@@ -63,11 +242,10 @@ export const appRouter = router({
         balance3: z.union([z.string(), z.number()]).optional(),
         balance4: z.union([z.string(), z.number()]).optional(),
         balance5: z.union([z.string(), z.number()]).optional(),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         
         const b1 = normalizeNumericInput(input.balance1);
         const b2 = normalizeNumericInput(input.balance2);
@@ -77,7 +255,7 @@ export const appRouter = router({
         const total = b1 + b2 + b3 + b4 + b5;
         
         return db.upsertBankBalance({
-          organizationId: ctx.user.organizationId,
+          organizationId: orgId,
           yearMonth: input.yearMonth,
           balance1: b1,
           balance2: b2,
@@ -93,22 +271,24 @@ export const appRouter = router({
   // Income record operations
   income: router({
     list: protectedProcedure
-      .input(z.object({ limit: z.number().optional() }))
+      .input(z.object({ 
+        limit: z.number().optional(),
+        organizationId: z.number().optional(), // 本部担当者用
+      }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        return db.getIncomeRecords(ctx.user.organizationId, input.limit);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        return db.getIncomeRecords(orgId, input.limit);
       }),
     
     getByYearMonth: protectedProcedure
-      .input(z.object({ yearMonth: z.string() }))
+      .input(z.object({ 
+        yearMonth: z.string(),
+        organizationId: z.number().optional(), // 本部担当者用
+      }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        console.log(`[Income.getByYearMonth] organizationId: ${ctx.user.organizationId}, yearMonth: ${input.yearMonth}`);
-        const result = await db.getIncomeRecordByYearMonth(ctx.user.organizationId, input.yearMonth);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        console.log(`[Income.getByYearMonth] organizationId: ${orgId}, yearMonth: ${input.yearMonth}`);
+        const result = await db.getIncomeRecordByYearMonth(orgId, input.yearMonth);
         console.log(`[Income.getByYearMonth] result:`, result ? 'found' : 'not found');
         return result;
       }),
@@ -117,13 +297,12 @@ export const appRouter = router({
       .input(z.object({ 
         yearMonth: z.string(),
         status: z.enum(["actual", "forecast", "prediction"]),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        console.log(`[Income.getByStatus] organizationId: ${ctx.user.organizationId}, yearMonth: ${input.yearMonth}, status: ${input.status}`);
-        const result = await calculateIncomeByStatus(ctx.user.organizationId, input.yearMonth, input.status);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        console.log(`[Income.getByStatus] organizationId: ${orgId}, yearMonth: ${input.yearMonth}, status: ${input.status}`);
+        const result = await calculateIncomeByStatus(orgId, input.yearMonth, input.status);
         console.log(`[Income.getByStatus] result keys:`, Object.keys(result));
         return result;
       }),
@@ -132,14 +311,13 @@ export const appRouter = router({
       .input(z.object({ 
         yearMonths: z.array(z.string()),
         status: z.enum(["actual", "forecast", "prediction"]),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         const results = await Promise.all(
           input.yearMonths.map(yearMonth => 
-            calculateIncomeByStatus(ctx.user.organizationId, yearMonth, input.status)
+            calculateIncomeByStatus(orgId, yearMonth, input.status)
               .then(data => ({ ...data, yearMonth, id: yearMonth }))
           )
         );
@@ -160,14 +338,13 @@ export const appRouter = router({
         longTermLoan: z.union([z.string(), z.number()]).optional(),
         interestIncome: z.union([z.string(), z.number()]).optional(),
         otherNonBusinessIncome: z.union([z.string(), z.number()]).optional(),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         
         return db.upsertIncomeRecord({
-          organizationId: ctx.user.organizationId,
+          organizationId: orgId,
           yearMonth: input.yearMonth,
           insuranceIncome: normalizeNumericInput(input.insuranceIncome),
           userBurdenTransfer: normalizeNumericInput(input.userBurdenTransfer),
@@ -188,22 +365,24 @@ export const appRouter = router({
   // Expense record operations
   expense: router({
     list: protectedProcedure
-      .input(z.object({ limit: z.number().optional() }))
+      .input(z.object({ 
+        limit: z.number().optional(),
+        organizationId: z.number().optional(), // 本部担当者用
+      }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        return db.getExpenseRecords(ctx.user.organizationId, input.limit);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        return db.getExpenseRecords(orgId, input.limit);
       }),
     
     getByYearMonth: protectedProcedure
-      .input(z.object({ yearMonth: z.string() }))
+      .input(z.object({ 
+        yearMonth: z.string(),
+        organizationId: z.number().optional(), // 本部担当者用
+      }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        console.log(`[Expense.getByYearMonth] organizationId: ${ctx.user.organizationId}, yearMonth: ${input.yearMonth}`);
-        const result = await db.getExpenseRecordByYearMonth(ctx.user.organizationId, input.yearMonth);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        console.log(`[Expense.getByYearMonth] organizationId: ${orgId}, yearMonth: ${input.yearMonth}`);
+        const result = await db.getExpenseRecordByYearMonth(orgId, input.yearMonth);
         console.log(`[Expense.getByYearMonth] result:`, result ? 'found' : 'not found');
         return result;
       }),
@@ -212,13 +391,12 @@ export const appRouter = router({
       .input(z.object({ 
         yearMonth: z.string(),
         status: z.enum(["actual", "forecast", "prediction"]),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        console.log(`[Expense.getByStatus] organizationId: ${ctx.user.organizationId}, yearMonth: ${input.yearMonth}, status: ${input.status}`);
-        const result = await calculateExpenseByStatus(ctx.user.organizationId, input.yearMonth, input.status);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        console.log(`[Expense.getByStatus] organizationId: ${orgId}, yearMonth: ${input.yearMonth}, status: ${input.status}`);
+        const result = await calculateExpenseByStatus(orgId, input.yearMonth, input.status);
         console.log(`[Expense.getByStatus] result keys:`, Object.keys(result));
         return result;
       }),
@@ -227,14 +405,13 @@ export const appRouter = router({
       .input(z.object({ 
         yearMonths: z.array(z.string()),
         status: z.enum(["actual", "forecast", "prediction"]),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         const results = await Promise.all(
           input.yearMonths.map(yearMonth => 
-            calculateExpenseByStatus(ctx.user.organizationId, yearMonth, input.status)
+            calculateExpenseByStatus(orgId, yearMonth, input.status)
               .then(data => ({ ...data, yearMonth, id: yearMonth }))
           )
         );
@@ -265,14 +442,13 @@ export const appRouter = router({
         regularDeposit: z.union([z.string(), z.number()]).optional(),
         taxPayment: z.union([z.string(), z.number()]).optional(),
         otherNonBusinessExpense: z.union([z.string(), z.number()]).optional(),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         
         return db.upsertExpenseRecord({
-          organizationId: ctx.user.organizationId,
+          organizationId: orgId,
           yearMonth: input.yearMonth,
           personnelCost: normalizeNumericInput(input.personnelCost),
           legalWelfare: normalizeNumericInput(input.legalWelfare),
@@ -306,12 +482,11 @@ export const appRouter = router({
       .input(z.object({ 
         page: z.number().default(1),
         pageSize: z.number().default(50),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        return db.getBillingDataList(ctx.user.organizationId, input.page, input.pageSize);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        return db.getBillingDataList(orgId, input.page, input.pageSize);
       }),
     
     search: protectedProcedure
@@ -321,13 +496,12 @@ export const appRouter = router({
         userName: z.string().optional(),
         page: z.number().default(1),
         pageSize: z.number().default(50),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         return db.searchBillingData(
-          ctx.user.organizationId,
+          orgId,
           {
             billingYearMonth: input.billingYearMonth,
             serviceYearMonth: input.serviceYearMonth,
@@ -349,14 +523,13 @@ export const appRouter = router({
         reduction: z.union([z.string(), z.number()]),
         userBurdenTransfer: z.union([z.string(), z.number()]),
         userBurdenWithdrawal: z.union([z.string(), z.number()]),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         
         return db.createBillingData({
-          organizationId: ctx.user.organizationId,
+          organizationId: orgId,
           billingYearMonth: formatYYYYMM(input.billingYearMonth),
           serviceYearMonth: formatYYYYMM(input.serviceYearMonth),
           userName: input.userName,
@@ -416,11 +589,12 @@ export const appRouter = router({
   // Factoring settings operations
   factoring: router({
     getSetting: protectedProcedure
-      .query(async ({ ctx }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        return db.getFactoringSetting(ctx.user.organizationId);
+      .input(z.object({
+        organizationId: z.number().optional(), // 本部担当者用
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        const orgId = getEffectiveOrganizationId(ctx.user, input?.organizationId);
+        return db.getFactoringSetting(orgId);
       }),
     
     upsertSetting: editorProcedure
@@ -431,14 +605,13 @@ export const appRouter = router({
         usageFee: z.number(),
         paymentDay: z.number(),
         remainingPaymentDay: z.number(),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         
         return db.upsertFactoringSetting({
-          organizationId: ctx.user.organizationId,
+          organizationId: orgId,
           factoringRate: input.factoringRate,
           remainingRate: input.remainingRate,
           feeRate: input.feeRate,
@@ -453,12 +626,13 @@ export const appRouter = router({
   // Budget operations
   budget: router({
     list: protectedProcedure
-      .input(z.object({ yearMonth: z.string() }))
+      .input(z.object({ 
+        yearMonth: z.string(),
+        organizationId: z.number().optional(), // 本部担当者用
+      }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        return db.getBudgets(ctx.user.organizationId, input.yearMonth);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        return db.getBudgets(orgId, input.yearMonth);
       }),
     
     upsert: editorProcedure
@@ -467,14 +641,13 @@ export const appRouter = router({
         category: z.string(),
         itemName: z.string(),
         amount: z.union([z.string(), z.number()]),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         
         return db.upsertBudget({
-          organizationId: ctx.user.organizationId,
+          organizationId: orgId,
           yearMonth: input.yearMonth,
           category: input.category,
           itemName: input.itemName,
@@ -486,6 +659,9 @@ export const appRouter = router({
 
   // Organization operations
   organization: router({
+    list: headquartersProcedure.query(async () => {
+      return db.getAllOrganizations();
+    }),
     create: adminProcedure
       .input(z.object({ name: z.string() }))
       .mutation(async ({ input }) => {
@@ -496,11 +672,12 @@ export const appRouter = router({
   // Loan operations
   loan: router({
     list: protectedProcedure
-      .query(async ({ ctx }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        return db.getLoans(ctx.user.organizationId);
+      .input(z.object({
+        organizationId: z.number().optional(), // 本部担当者用
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        const orgId = getEffectiveOrganizationId(ctx.user, input?.organizationId);
+        return db.getLoans(orgId);
       }),
     
     create: editorProcedure
@@ -515,11 +692,10 @@ export const appRouter = router({
         repaymentPrincipal: z.union([z.string(), z.number()]),
         firstRepaymentDate: z.string(),
         effectiveFrom: z.string(),
+        organizationId: z.number().optional(), // 本部担当者用
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         
         // annualInterestRateはdecimal型なので、文字列として保存（例: "1.500"）
         const annualInterestRateValue = typeof input.annualInterestRate === 'string' 
@@ -527,7 +703,7 @@ export const appRouter = router({
           : String(input.annualInterestRate);
         
         const loanId = await db.createLoan({
-          organizationId: ctx.user.organizationId,
+          organizationId: orgId,
           financialInstitution: input.financialInstitution,
           branchName: input.branchName || null,
           repaymentMethod: input.repaymentMethod,
@@ -608,23 +784,25 @@ export const appRouter = router({
   // Month status operations
   monthStatus: router({
     get: protectedProcedure
-      .input(z.object({ yearMonth: z.string() }))
+      .input(z.object({ 
+        yearMonth: z.string(),
+        organizationId: z.number().optional(), // 本部担当者用
+      }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
-        return getMonthStatus(ctx.user.organizationId, input.yearMonth);
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        return getMonthStatus(orgId, input.yearMonth);
       }),
     
     list: protectedProcedure
-      .input(z.object({ yearMonths: z.array(z.string()).optional() }))
+      .input(z.object({ 
+        yearMonths: z.array(z.string()).optional(),
+        organizationId: z.number().optional(), // 本部担当者用
+      }))
       .query(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         try {
-          console.log(`[MonthStatus.list] organizationId: ${ctx.user.organizationId}, yearMonths:`, input.yearMonths);
-          const result = await getMonthStatuses(ctx.user.organizationId, input.yearMonths);
+          console.log(`[MonthStatus.list] organizationId: ${orgId}, yearMonths:`, input.yearMonths);
+          const result = await getMonthStatuses(orgId, input.yearMonths);
           console.log(`[MonthStatus.list] result count:`, result.length);
           return result;
         } catch (error) {

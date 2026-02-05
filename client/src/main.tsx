@@ -14,8 +14,9 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
 
-  // モックアップ環境では認証エラーを無視
-  const isMockupMode = !import.meta.env.VITE_OAUTH_PORTAL_URL || !import.meta.env.VITE_APP_ID;
+  // モックアップ環境では認証エラーを無視（ポート4000の場合のみ）
+  const currentPort = typeof window !== 'undefined' ? window.location.port : '';
+  const isMockupMode = currentPort === '4000' && (!import.meta.env.VITE_OAUTH_PORTAL_URL || !import.meta.env.VITE_APP_ID);
   if (isMockupMode) {
     console.warn("[Mockup Mode] Authentication error ignored:", error);
     return;
