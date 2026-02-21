@@ -279,59 +279,87 @@ export const appRouter = router({
       }),
   }),
 
-  // Bank balance operations
+  // Bank account (金融機関) operations
+  bankAccount: router({
+    list: protectedProcedure
+      .input(z.object({ organizationId: z.number().optional() }))
+      .query(async ({ ctx, input }) => {
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        return db.getBankAccounts(orgId);
+      }),
+    create: editorProcedure
+      .input(z.object({
+        name: z.string().min(1, "金融機関名を入力してください"),
+        displayOrder: z.number().optional(),
+        organizationId: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        const id = await db.createBankAccount({
+          organizationId: orgId,
+          name: input.name,
+          displayOrder: input.displayOrder ?? 0,
+        });
+        return { id };
+      }),
+    update: editorProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        displayOrder: z.number().optional(),
+        organizationId: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        await db.updateBankAccount(input.id, orgId, {
+          name: input.name,
+          displayOrder: input.displayOrder,
+        });
+      }),
+    delete: editorProcedure
+      .input(z.object({ id: z.number(), organizationId: z.number().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        await db.deleteBankAccount(input.id, orgId);
+      }),
+  }),
+
+  // Bank balance operations（金融機関ごと・月ごと）
   bankBalance: router({
     list: protectedProcedure
       .input(z.object({ 
         limit: z.number().optional(),
-        organizationId: z.number().optional(), // 本部担当者用
+        organizationId: z.number().optional(),
       }))
       .query(async ({ ctx, input }) => {
         const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         return db.getBankBalances(orgId, input.limit);
       }),
-    
     getByYearMonth: protectedProcedure
       .input(z.object({ 
         yearMonth: z.string(),
-        organizationId: z.number().optional(), // 本部担当者用
+        organizationId: z.number().optional(),
       }))
       .query(async ({ ctx, input }) => {
         const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         return db.getBankBalanceByYearMonth(orgId, input.yearMonth);
       }),
-    
     upsert: editorProcedure
       .input(z.object({
         yearMonth: z.string(),
-        balance1: z.union([z.string(), z.number()]).optional(),
-        balance2: z.union([z.string(), z.number()]).optional(),
-        balance3: z.union([z.string(), z.number()]).optional(),
-        balance4: z.union([z.string(), z.number()]).optional(),
-        balance5: z.union([z.string(), z.number()]).optional(),
-        organizationId: z.number().optional(), // 本部担当者用
+        entries: z.array(z.object({
+          bankAccountId: z.number(),
+          balance: z.union([z.string(), z.number()]),
+        })),
+        organizationId: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
-        
-        const b1 = normalizeNumericInput(input.balance1);
-        const b2 = normalizeNumericInput(input.balance2);
-        const b3 = normalizeNumericInput(input.balance3);
-        const b4 = normalizeNumericInput(input.balance4);
-        const b5 = normalizeNumericInput(input.balance5);
-        const total = b1 + b2 + b3 + b4 + b5;
-        
-        return db.upsertBankBalance({
-          organizationId: orgId,
-          yearMonth: input.yearMonth,
-          balance1: b1,
-          balance2: b2,
-          balance3: b3,
-          balance4: b4,
-          balance5: b5,
-          totalBalance: total,
-          createdBy: ctx.user.id,
-        });
+        const entries = input.entries.map((e) => ({
+          bankAccountId: e.bankAccountId,
+          balance: normalizeNumericInput(e.balance),
+        }));
+        await db.upsertBankBalance(orgId, input.yearMonth, ctx.user.id, entries);
       }),
   }),
 

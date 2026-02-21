@@ -7,240 +7,175 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Loader2, Edit } from "lucide-react";
+import { Loader2, Copy } from "lucide-react";
+
+const MONTH_LABELS = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+const ITEM_KEYS = ["totalSales", "insuranceIncome", "userBurden"] as const;
+const ITEM_LABELS: Record<(typeof ITEM_KEYS)[number], string> = {
+  totalSales: "合計売上予算",
+  insuranceIncome: "保険入金予算",
+  userBurden: "利用者請求予算",
+};
+const ITEM_NAMES: Record<(typeof ITEM_KEYS)[number], string> = {
+  totalSales: "合計売上予算",
+  insuranceIncome: "保険入金予算",
+  userBurden: "利用者請求予算",
+};
+
+type MonthData = { totalSales: string; insuranceIncome: string; userBurden: string };
+
+function emptyMonthData(): MonthData {
+  return { totalSales: "", insuranceIncome: "", userBurden: "" };
+}
 
 export default function Budget({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
   const [location] = useLocation();
-  
-  // URLから組織IDを取得（/:organizationId/budget形式）
+
   const organizationId = useMemo(() => {
-    // プロップで渡された場合はそれを使用
-    if (propOrganizationId) {
-      return propOrganizationId;
-    }
-    // URLから組織IDを取得
+    if (propOrganizationId) return propOrganizationId;
     const match = location.match(/^\/(\d+)\/budget$/);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
+    if (match) return parseInt(match[1], 10);
     return undefined;
   }, [location, propOrganizationId]);
 
-  const [yearMonth, setYearMonth] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [tableData, setTableData] = useState<Record<string, MonthData>>({});
 
-  const [formData, setFormData] = useState({
-    totalSales: "",
-    insuranceIncome: "",
-    userBurden: "",
-  });
+  // 1年分の yearMonth リスト
+  const yearMonths = useMemo(() => {
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      return `${selectedYear}-${String(m).padStart(2, "0")}`;
+    });
+  }, [selectedYear]);
 
-  // 予算データを取得（対象年月のデータ）
-  const { data: budgets, isLoading } = trpc.budget.list.useQuery(
-    { yearMonth, organizationId },
+  // 全期間の予算を取得（対象年度の表示用）
+  const { data: allBudgets, isLoading } = trpc.budget.list.useQuery(
+    { yearMonth: "", organizationId },
     {
-      enabled: !isMockupMode && !!yearMonth,
+      enabled: !isMockupMode && !!organizationId,
       ...getMockupQueryOptions(null),
     }
-  );
-
-  // 登録履歴を取得（直近12ヶ月）
-  const { data: historyData, refetch: refetchHistory } = trpc.budget.list.useQuery(
-    { yearMonth: "", organizationId }, // 全期間を取得
-    isMockupMode 
-      ? {
-          enabled: false,
-          initialData: undefined,
-        }
-      : { 
-          enabled: true,
-          initialData: undefined,
-        }
   );
 
   const utils = trpc.useUtils();
   const upsertMutation = trpc.budget.upsert.useMutation({
     onSuccess: async () => {
-      toast.success("予算を保存しました");
       await utils.budget.list.invalidate();
-      await refetchHistory();
     },
     onError: (error) => {
       toast.error(`保存に失敗しました: ${error.message}`);
     },
   });
 
-  // データベースから取得した予算データをフォームに反映
+  // 取得した予算を対象年度の表データに反映
   useEffect(() => {
-    if (budgets && budgets.length > 0) {
-      const newFormData: { totalSales: string; insuranceIncome: string; userBurden: string } = {
-        totalSales: "",
-        insuranceIncome: "",
-        userBurden: "",
-      };
+    if (!allBudgets) return;
 
-      budgets.forEach(budget => {
-        // 割合設定はスキップ
-        if (budget.yearMonth === "__RATIO__") return;
+    const next: Record<string, MonthData> = {};
+    yearMonths.forEach((ym) => {
+      next[ym] = { ...emptyMonthData() };
+    });
 
-        const value = budget.amount > 0 ? budget.amount.toLocaleString('ja-JP') : "";
-        
-        if (budget.itemName === "合計売上予算") {
-          newFormData.totalSales = value;
-        } else if (budget.itemName === "保険入金予算") {
-          newFormData.insuranceIncome = value;
-        } else if (budget.itemName === "利用者請求予算") {
-          newFormData.userBurden = value;
-        }
-      });
+    allBudgets.forEach((b) => {
+      if (b.yearMonth === "__RATIO__") return;
+      const ym = b.yearMonth;
+      if (!yearMonths.includes(ym)) return;
+      if (!next[ym]) next[ym] = { ...emptyMonthData() };
+      const value = b.amount > 0 ? b.amount.toLocaleString("ja-JP") : "";
+      if (b.itemName === "合計売上予算") next[ym].totalSales = value;
+      else if (b.itemName === "保険入金予算") next[ym].insuranceIncome = value;
+      else if (b.itemName === "利用者請求予算") next[ym].userBurden = value;
+    });
 
-      setFormData(newFormData);
-    } else {
-      setFormData({
-        totalSales: "",
-        insuranceIncome: "",
-        userBurden: "",
-      });
-    }
-  }, [budgets]);
+    setTableData(next);
+  }, [allBudgets, yearMonths]);
+
+  const normalize = (val: string) => {
+    const cleaned = val.replace(/[¥￥円,]/g, "").replace(/[^0-9.-]/g, "");
+    return parseFloat(cleaned) || 0;
+  };
+
+  const updateCell = (yearMonth: string, item: (typeof ITEM_KEYS)[number], value: string) => {
+    setTableData((prev) => ({
+      ...prev,
+      [yearMonth]: {
+        ...(prev[yearMonth] ?? emptyMonthData()),
+        [item]: value,
+      },
+    }));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const normalize = (val: string) => {
-      const cleaned = val.replace(/[¥￥円,]/g, '').replace(/[^0-9.-]/g, '');
-      return parseFloat(cleaned) || 0;
-    };
 
-    const totalSales = normalize(formData.totalSales);
-    const insuranceIncome = normalize(formData.insuranceIncome);
-    const userBurden = normalize(formData.userBurden);
+    const promises: Promise<unknown>[] = [];
+    yearMonths.forEach((yearMonth) => {
+      const row = tableData[yearMonth] ?? emptyMonthData();
+      const totalSales = normalize(row.totalSales);
+      const insuranceIncome = normalize(row.insuranceIncome);
+      const userBurden = normalize(row.userBurden);
 
-    if (totalSales === 0 && insuranceIncome === 0 && userBurden === 0) {
-      toast.error("少なくとも1つの項目に入力してください");
+      if (totalSales > 0) {
+        promises.push(
+          upsertMutation.mutateAsync({
+            yearMonth,
+            category: "income",
+            itemName: ITEM_NAMES.totalSales,
+            amount: totalSales,
+            organizationId,
+          })
+        );
+      }
+      if (insuranceIncome > 0) {
+        promises.push(
+          upsertMutation.mutateAsync({
+            yearMonth,
+            category: "income",
+            itemName: ITEM_NAMES.insuranceIncome,
+            amount: insuranceIncome,
+            organizationId,
+          })
+        );
+      }
+      if (userBurden > 0) {
+        promises.push(
+          upsertMutation.mutateAsync({
+            yearMonth,
+            category: "income",
+            itemName: ITEM_NAMES.userBurden,
+            amount: userBurden,
+            organizationId,
+          })
+        );
+      }
+    });
+
+    if (promises.length === 0) {
+      toast.error("少なくとも1つのセルに入力してください");
       return;
     }
 
-    const promises: Promise<any>[] = [];
-
-    if (totalSales > 0) {
-      promises.push(
-        upsertMutation.mutateAsync({
-          yearMonth,
-          category: 'income',
-          itemName: '合計売上予算',
-          amount: totalSales,
-          organizationId,
-        })
-      );
-    }
-
-    if (insuranceIncome > 0) {
-      promises.push(
-        upsertMutation.mutateAsync({
-          yearMonth,
-          category: 'income',
-          itemName: '保険入金予算',
-          amount: insuranceIncome,
-          organizationId,
-        })
-      );
-    }
-
-    if (userBurden > 0) {
-      promises.push(
-        upsertMutation.mutateAsync({
-          yearMonth,
-          category: 'income',
-          itemName: '利用者請求予算',
-          amount: userBurden,
-          organizationId,
-        })
-      );
-    }
-
-    Promise.all(promises).catch((error) => {
-      toast.error(`保存に失敗しました: ${error.message}`);
-    });
+    Promise.all(promises)
+      .then(() => toast.success("予算を保存しました"))
+      .catch(() => {});
   };
 
-  const calculateTotal = () => {
-    const normalize = (val: string) => {
-      const cleaned = val.replace(/[¥￥円,]/g, '').replace(/[^0-9.-]/g, '');
-      return parseFloat(cleaned) || 0;
-    };
-    
-    return normalize(formData.totalSales);
+  const yearOptions = useMemo(() => {
+    const years: number[] = [];
+    for (let y = currentYear + 1; y >= currentYear - 5; y--) years.push(y);
+    return years;
+  }, [currentYear]);
+
+  /** 指定月に前月の数値のみをコピーする */
+  const handleCopyFromPrevMonth = (thisMonth: string, prevMonth: string) => {
+    setTableData((prev) => ({
+      ...prev,
+      [thisMonth]: { ...(prev[prevMonth] ?? emptyMonthData()) },
+    }));
+    toast.success(`${MONTH_LABELS[yearMonths.indexOf(thisMonth)]}に前月の数値をコピーしました`);
   };
-
-  const handleEdit = (record: any) => {
-    setYearMonth(record.yearMonth);
-    
-    // 履歴データから該当月の予算を取得
-    const yearMonthBudgets = historyData?.filter(b => b.yearMonth === record.yearMonth) || [];
-    
-    const newFormData: { totalSales: string; insuranceIncome: string; userBurden: string } = {
-      totalSales: "",
-      insuranceIncome: "",
-      userBurden: "",
-    };
-
-    yearMonthBudgets.forEach(budget => {
-      if (budget.yearMonth === "__RATIO__") return;
-
-      const value = budget.amount > 0 ? budget.amount.toLocaleString('ja-JP') : "";
-      
-      if (budget.itemName === "合計売上予算") {
-        newFormData.totalSales = value;
-      } else if (budget.itemName === "保険入金予算") {
-        newFormData.insuranceIncome = value;
-      } else if (budget.itemName === "利用者請求予算") {
-        newFormData.userBurden = value;
-      }
-    });
-
-    setFormData(newFormData);
-    
-    // フォームまでスクロール
-    setTimeout(() => {
-      const formElement = document.querySelector('form');
-      if (formElement) {
-        formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 100);
-  };
-
-  // 履歴データを年月ごとに集計
-  const historyByYearMonth = useMemo(() => {
-    if (!historyData) return new Map();
-
-    const map = new Map<string, { yearMonth: string; totalSales: number; insuranceIncome: number; userBurden: number }>();
-    
-    historyData.forEach(budget => {
-      if (budget.yearMonth === "__RATIO__") return;
-
-      const existing = map.get(budget.yearMonth) || {
-        yearMonth: budget.yearMonth,
-        totalSales: 0,
-        insuranceIncome: 0,
-        userBurden: 0,
-      };
-
-      if (budget.itemName === "合計売上予算") {
-        existing.totalSales = budget.amount;
-      } else if (budget.itemName === "保険入金予算") {
-        existing.insuranceIncome = budget.amount;
-      } else if (budget.itemName === "利用者請求予算") {
-        existing.userBurden = budget.amount;
-      }
-
-      map.set(budget.yearMonth, existing);
-    });
-
-    return map;
-  }, [historyData]);
 
   if (!isMockupMode && isLoading) {
     return (
@@ -251,156 +186,123 @@ export default function Budget({ organizationId: propOrganizationId }: { organiz
   }
 
   return (
-    <div className="container py-8 max-w-4xl">
+    <div className="container py-8 max-w-5xl">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">予算入力</h1>
         <p className="text-muted-foreground">
-          各月の予算を入力してください。
+          対象年度の1年分を表形式で入力できます。
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>予算入力</CardTitle>
+          <CardTitle>予算入力（1年分）</CardTitle>
           <CardDescription>
             全角数字や通貨記号は自動的に半角数字に変換されます
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="yearMonth">対象年月</Label>
-              <Input
-                id="yearMonth"
-                type="month"
-                value={yearMonth}
-                onChange={(e) => setYearMonth(e.target.value)}
-                required
-              />
+            <div className="space-y-2 max-w-[140px]">
+              <Label htmlFor="selectedYear">対象年度</Label>
+              <select
+                id="selectedYear"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(Number(e.target.value))}
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}年
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div className="grid gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="totalSales">合計売上予算</Label>
-                <Input
-                  id="totalSales"
-                  type="text"
-                  placeholder="例: ¥6,000,000 または 6000000"
-                  value={formData.totalSales}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      totalSales: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="insuranceIncome">保険入金予算</Label>
-                <Input
-                  id="insuranceIncome"
-                  type="text"
-                  placeholder="例: ¥5,400,000 または 5400000"
-                  value={formData.insuranceIncome}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      insuranceIncome: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="userBurden">利用者請求予算</Label>
-                <Input
-                  id="userBurden"
-                  type="text"
-                  placeholder="例: ¥600,000 または 600000"
-                  value={formData.userBurden}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      userBurden: e.target.value,
-                    }))
-                  }
-                />
-              </div>
+            <div className="overflow-x-auto -mx-2">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-2 font-medium w-14">月</th>
+                    <th className="text-left p-2 font-medium min-w-[120px]">{ITEM_LABELS.totalSales}</th>
+                    <th className="text-left p-2 font-medium min-w-[120px]">{ITEM_LABELS.insuranceIncome}</th>
+                    <th className="text-left p-2 font-medium min-w-[120px]">{ITEM_LABELS.userBurden}</th>
+                    <th className="text-left p-2 font-medium w-[100px]"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {yearMonths.map((yearMonth, index) => {
+                    const row = tableData[yearMonth] ?? emptyMonthData();
+                    return (
+                      <tr key={yearMonth} className="border-b border-border/50 hover:bg-muted/30">
+                        <td className="p-2 font-medium text-muted-foreground">{MONTH_LABELS[index]}</td>
+                        <td className="p-1">
+                          <Input
+                            type="text"
+                            placeholder="0"
+                            className="h-9 text-right tabular-nums"
+                            value={row.totalSales}
+                            onChange={(e) => updateCell(yearMonth, "totalSales", e.target.value)}
+                          />
+                        </td>
+                        <td className="p-1">
+                          <Input
+                            type="text"
+                            placeholder="0"
+                            className="h-9 text-right tabular-nums"
+                            value={row.insuranceIncome}
+                            onChange={(e) => updateCell(yearMonth, "insuranceIncome", e.target.value)}
+                          />
+                        </td>
+                        <td className="p-1">
+                          <Input
+                            type="text"
+                            placeholder="0"
+                            className="h-9 text-right tabular-nums"
+                            value={row.userBurden}
+                            onChange={(e) => updateCell(yearMonth, "userBurden", e.target.value)}
+                          />
+                        </td>
+                        <td className="p-1 w-[100px]">
+                          {index > 0 ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 text-muted-foreground hover:text-foreground"
+                              onClick={() => handleCopyFromPrevMonth(yearMonth, yearMonths[index - 1])}
+                            >
+                              <Copy className="w-3.5 h-3.5 mr-1" />
+                              前月コピー
+                            </Button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
             <div className="pt-4 border-t">
-              <div className="flex justify-between items-center text-lg font-semibold">
-                <span>合計売上予算:</span>
-                <span className="text-primary">
-                  ¥{calculateTotal().toLocaleString('ja-JP')}
-                </span>
-              </div>
+              <Button
+                type="submit"
+                className="w-full sm:w-auto min-w-[200px]"
+                disabled={upsertMutation.isPending}
+              >
+                {upsertMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    保存中...
+                  </>
+                ) : (
+                  "1年分を保存"
+                )}
+              </Button>
             </div>
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={upsertMutation.isPending}
-            >
-              {upsertMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  保存中...
-                </>
-              ) : (
-                "保存"
-              )}
-            </Button>
           </form>
         </CardContent>
       </Card>
-
-      {historyData && Array.from(historyByYearMonth.values()).length > 0 && (
-        <Card className="mt-8">
-          <CardHeader>
-            <CardTitle>登録履歴</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {Array.from(historyByYearMonth.values())
-                .sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
-                .slice(0, 12)
-                .map((record) => {
-                  const total = record.totalSales;
-                  
-                  return (
-                    <div
-                      key={record.yearMonth}
-                      className="flex justify-between items-center p-3 rounded-lg bg-muted/50"
-                    >
-                      <div className="flex flex-col">
-                        <span className="font-medium">{record.yearMonth}</span>
-                        <span className="text-sm text-muted-foreground">
-                          保険入金: ¥{record.insuranceIncome.toLocaleString('ja-JP')} / 
-                          利用者請求: ¥{record.userBurden.toLocaleString('ja-JP')}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-primary font-semibold">
-                          ¥{total.toLocaleString('ja-JP')}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleEdit(record)}
-                          className="h-8"
-                        >
-                          <Edit className="h-4 w-4 mr-1" />
-                          編集
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
-

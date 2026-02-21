@@ -35,18 +35,29 @@ export type Organization = typeof organizations.$inferSelect;
 export type InsertOrganization = typeof organizations.$inferInsert;
 
 /**
- * Bank balances (口座残高) table
+ * Bank accounts (金融機関) - 法人ごとに登録する金融機関マスタ
+ */
+export const bankAccounts = mysqlTable("bank_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(), // 金融機関名
+  displayOrder: int("displayOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type BankAccount = typeof bankAccounts.$inferSelect;
+export type InsertBankAccount = typeof bankAccounts.$inferInsert;
+
+/**
+ * Bank balances (口座残高) - 金融機関ごと・月ごとの残高
  */
 export const bankBalances = mysqlTable("bank_balances", {
   id: int("id").autoincrement().primaryKey(),
   organizationId: int("organizationId").notNull(),
   yearMonth: varchar("yearMonth", { length: 7 }).notNull(), // YYYY-MM format
-  balance1: int("balance1").default(0).notNull(),
-  balance2: int("balance2").default(0).notNull(),
-  balance3: int("balance3").default(0).notNull(),
-  balance4: int("balance4").default(0).notNull(),
-  balance5: int("balance5").default(0).notNull(),
-  totalBalance: int("totalBalance").default(0).notNull(),
+  bankAccountId: int("bankAccountId").notNull(),
+  balance: int("balance").default(0).notNull(),
   createdBy: int("createdBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

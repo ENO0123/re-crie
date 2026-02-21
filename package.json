@@ -18,7 +18,9 @@
     "db:create-org": "tsx scripts/create-organization-users.ts",
     "db:create-headquarters": "tsx scripts/create-headquarters-user.ts",
     "db:check-loans": "tsx scripts/check-loans.ts",
-    "db:create-user": "tsx scripts/create-user.ts"
+    "db:create-user": "tsx scripts/create-user.ts",
+    "db:reset-password": "tsx scripts/reset-password.ts",
+    "db:create-production-user": "tsx scripts/create-production-user.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

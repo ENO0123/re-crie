@@ -42,26 +42,20 @@ function generateYearMonths(months: number): string[] {
  * モックアップ環境用のダミーデータ
  */
 export const mockupData = {
+  // 新形式: 金融機関ごと・月ごと。list は { yearMonth, totalBalance, entries }[]
   bankBalances: (() => {
     const yearMonths = generateYearMonths(12);
     return yearMonths.map((yearMonth, index) => {
-      const baseBalance = 5000000; // 500万円を基準
-      const variation = (Math.random() - 0.5) * 1000000; // ±50万円の変動
-      const totalBalance = Math.round(baseBalance + variation - (index * 50000)); // 徐々に減少
-      
+      const baseBalance = 5000000;
+      const variation = (Math.random() - 0.5) * 1000000;
+      const totalBalance = Math.round(baseBalance + variation - (index * 50000));
       return {
-        id: index + 1,
-        organizationId: 1,
         yearMonth,
-        balance1: Math.round(totalBalance * 0.4),
-        balance2: Math.round(totalBalance * 0.3),
-        balance3: Math.round(totalBalance * 0.2),
-        balance4: Math.round(totalBalance * 0.08),
-        balance5: Math.round(totalBalance * 0.02),
         totalBalance,
-        createdBy: 1,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        entries: [
+          { bankAccountId: 1, bankAccountName: "メインバンク", balance: Math.round(totalBalance * 0.6) },
+          { bankAccountId: 2, bankAccountName: "サブ口座", balance: Math.round(totalBalance * 0.4) },
+        ],
       };
     });
   })(),

@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { isMockupMode, getMockupQueryOptions } from "@/lib/mockup";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInputWithCalendar } from "@/components/ui/date-input-ymd";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -446,20 +447,18 @@ export default function Loans({ organizationId: propOrganizationId }: { organiza
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="initialBorrowingDate">当初借入日 *</Label>
-                <Input
+                <DateInputWithCalendar
                   id="initialBorrowingDate"
-                  type="date"
                   value={formData.initialBorrowingDate}
-                  onChange={(e) => setFormData({ ...formData, initialBorrowingDate: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, initialBorrowingDate: v })}
                 />
               </div>
               <div>
                 <Label htmlFor="firstRepaymentDate">初回返済日 *</Label>
-                <Input
+                <DateInputWithCalendar
                   id="firstRepaymentDate"
-                  type="date"
                   value={formData.firstRepaymentDate}
-                  onChange={(e) => setFormData({ ...formData, firstRepaymentDate: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, firstRepaymentDate: v })}
                 />
               </div>
             </div>
@@ -487,11 +486,10 @@ export default function Loans({ organizationId: propOrganizationId }: { organiza
             </div>
             <div>
               <Label htmlFor="effectiveFrom">適用開始日 *</Label>
-              <Input
+              <DateInputWithCalendar
                 id="effectiveFrom"
-                type="date"
                 value={effectiveDate}
-                onChange={(e) => setEffectiveDate(e.target.value)}
+                onChange={setEffectiveDate}
               />
             </div>
           </div>
@@ -586,20 +584,18 @@ export default function Loans({ organizationId: propOrganizationId }: { organiza
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="edit-initialBorrowingDate">当初借入日 *</Label>
-                <Input
+                <DateInputWithCalendar
                   id="edit-initialBorrowingDate"
-                  type="date"
                   value={formData.initialBorrowingDate}
-                  onChange={(e) => setFormData({ ...formData, initialBorrowingDate: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, initialBorrowingDate: v })}
                 />
               </div>
               <div>
                 <Label htmlFor="edit-firstRepaymentDate">初回返済日 *</Label>
-                <Input
+                <DateInputWithCalendar
                   id="edit-firstRepaymentDate"
-                  type="date"
                   value={formData.firstRepaymentDate}
-                  onChange={(e) => setFormData({ ...formData, firstRepaymentDate: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, firstRepaymentDate: v })}
                 />
               </div>
             </div>
@@ -625,11 +621,10 @@ export default function Loans({ organizationId: propOrganizationId }: { organiza
             </div>
             <div>
               <Label htmlFor="edit-effectiveFrom">適用開始日 *</Label>
-              <Input
+              <DateInputWithCalendar
                 id="edit-effectiveFrom"
-                type="date"
                 value={effectiveDate}
-                onChange={(e) => setEffectiveDate(e.target.value)}
+                onChange={setEffectiveDate}
               />
             </div>
           </div>
@@ -665,11 +660,10 @@ export default function Loans({ organizationId: propOrganizationId }: { organiza
           <div className="space-y-4">
             <div>
               <Label htmlFor="toggle-effectiveFrom">適用開始日 *</Label>
-              <Input
+              <DateInputWithCalendar
                 id="toggle-effectiveFrom"
-                type="date"
                 value={effectiveDate}
-                onChange={(e) => setEffectiveDate(e.target.value)}
+                onChange={setEffectiveDate}
               />
             </div>
             {selectedLoan && (

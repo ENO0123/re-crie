@@ -4,6 +4,7 @@ import {
   InsertUser, 
   users, 
   organizations,
+  bankAccounts,
   bankBalances,
   incomeRecords,
   expenseRecords,
@@ -21,6 +22,8 @@ import {
   type Budget,
   type Organization,
   type InsertOrganization,
+  type BankAccount,
+  type InsertBankAccount,
   type InsertBankBalance,
   type InsertIncomeRecord,
   type InsertExpenseRecord,
@@ -45,6 +48,10 @@ export async function getDb() {
       console.warn("[Database] DATABASE_URL環境変数が設定されていません");
       return null;
     }
+    
+    // デバッグ用: 接続文字列の一部をログに出力（パスワードは隠す）
+    const maskedUrl = databaseUrl.replace(/:[^:@]+@/, ':****@');
+    console.log(`[Database] DATABASE_URL: ${maskedUrl}`);
     
     try {
       _db = drizzle(databaseUrl);
@@ -184,42 +191,137 @@ export async function createOrganization(org: InsertOrganization) {
   return result;
 }
 
-// Bank balance helpers
-export async function getBankBalances(organizationId: number, limit: number = 12) {
+// Bank account (金融機関) helpers
+export async function getBankAccounts(organizationId: number): Promise<BankAccount[]> {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(bankBalances)
-    .where(eq(bankBalances.organizationId, organizationId))
-    .orderBy(desc(bankBalances.yearMonth))
-    .limit(limit);
+  try {
+    return await db.select().from(bankAccounts)
+      .where(eq(bankAccounts.organizationId, organizationId))
+      .orderBy(asc(bankAccounts.displayOrder), asc(bankAccounts.id));
+  } catch (err) {
+    console.error("[getBankAccounts]", err);
+    return [];
+  }
 }
 
-export async function getBankBalanceByYearMonth(organizationId: number, yearMonth: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(bankBalances)
-    .where(and(
-      eq(bankBalances.organizationId, organizationId),
-      eq(bankBalances.yearMonth, yearMonth)
-    ))
-    .limit(1);
-  return result.length > 0 ? result[0] : undefined;
-}
-
-export async function upsertBankBalance(balance: InsertBankBalance) {
+export async function createBankAccount(account: InsertBankAccount): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
-  const existing = await getBankBalanceByYearMonth(balance.organizationId, balance.yearMonth);
-  if (existing) {
-    await db.update(bankBalances)
-      .set(balance)
-      .where(eq(bankBalances.id, existing.id));
-    return existing.id;
-  } else {
-    const result = await db.insert(bankBalances).values(balance);
-    return result[0].insertId;
+  const result = await db.insert(bankAccounts).values(account);
+  return result[0].insertId;
+}
+
+export async function updateBankAccount(id: number, organizationId: number, data: { name?: string; displayOrder?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(bankAccounts)
+    .set(data)
+    .where(and(eq(bankAccounts.id, id), eq(bankAccounts.organizationId, organizationId)));
+}
+
+export async function deleteBankAccount(id: number, organizationId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(bankAccounts)
+    .where(and(eq(bankAccounts.id, id), eq(bankAccounts.organizationId, organizationId)));
+}
+
+// Bank balance helpers（金融機関ごと・月ごと）
+export type BankBalanceEntry = { bankAccountId: number; bankAccountName: string; balance: number };
+export type BankBalanceByMonth = { yearMonth: string; totalBalance: number; entries: BankBalanceEntry[] };
+
+export async function getBankBalances(organizationId: number, limit: number = 12): Promise<BankBalanceByMonth[]> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await db
+      .select({
+        yearMonth: bankBalances.yearMonth,
+        bankAccountId: bankAccounts.id,
+        bankAccountName: bankAccounts.name,
+        balance: bankBalances.balance,
+      })
+      .from(bankBalances)
+      .innerJoin(bankAccounts, eq(bankBalances.bankAccountId, bankAccounts.id))
+      .where(eq(bankBalances.organizationId, organizationId))
+      .orderBy(desc(bankBalances.yearMonth));
+    const byMonth = new Map<string, BankBalanceEntry[]>();
+    for (const r of rows) {
+      if (!byMonth.has(r.yearMonth)) byMonth.set(r.yearMonth, []);
+      byMonth.get(r.yearMonth)!.push({
+        bankAccountId: r.bankAccountId,
+        bankAccountName: r.bankAccountName,
+        balance: r.balance,
+      });
+    }
+    const sortedMonths = Array.from(byMonth.keys()).sort().reverse().slice(0, limit);
+    return sortedMonths.map((yearMonth) => {
+      const entries = byMonth.get(yearMonth) ?? [];
+      const totalBalance = entries.reduce((s, e) => s + e.balance, 0);
+      return { yearMonth, totalBalance, entries };
+    });
+  } catch (err) {
+    console.error("[getBankBalances]", err);
+    return [];
   }
+}
+
+export async function getBankBalanceByYearMonth(
+  organizationId: number,
+  yearMonth: string
+): Promise<{ yearMonth: string; entries: BankBalanceEntry[]; totalBalance: number } | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  try {
+    const rows = await db
+      .select({
+        bankAccountId: bankAccounts.id,
+        bankAccountName: bankAccounts.name,
+        balance: bankBalances.balance,
+      })
+      .from(bankBalances)
+      .innerJoin(bankAccounts, eq(bankBalances.bankAccountId, bankAccounts.id))
+      .where(and(
+        eq(bankBalances.organizationId, organizationId),
+        eq(bankBalances.yearMonth, yearMonth)
+      ));
+    if (rows.length === 0) return undefined;
+    const entries: BankBalanceEntry[] = rows.map((r) => ({
+      bankAccountId: r.bankAccountId,
+      bankAccountName: r.bankAccountName,
+      balance: r.balance,
+    }));
+    const totalBalance = entries.reduce((s, e) => s + e.balance, 0);
+    return { yearMonth, entries, totalBalance };
+  } catch (err) {
+    console.error("[getBankBalanceByYearMonth]", err);
+    return undefined;
+  }
+}
+
+export async function upsertBankBalance(
+  organizationId: number,
+  yearMonth: string,
+  createdBy: number,
+  entries: { bankAccountId: number; balance: number }[]
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(bankBalances).where(and(
+    eq(bankBalances.organizationId, organizationId),
+    eq(bankBalances.yearMonth, yearMonth)
+  ));
+  if (entries.length === 0) return;
+  await db.insert(bankBalances).values(
+    entries.map((e) => ({
+      organizationId,
+      yearMonth,
+      bankAccountId: e.bankAccountId,
+      balance: e.balance,
+      createdBy,
+    }))
+  );
 }
 
 // Income record helpers
@@ -597,7 +699,7 @@ export async function getLoans(organizationId: number) {
   if (!db) return [];
   return db.select().from(loans)
     .where(eq(loans.organizationId, organizationId))
-    .orderBy(asc(loans.financialInstitution), asc(loans.branchName));
+    .orderBy(desc(loans.initialBorrowingDate));
 }
 
 export async function getLoanById(id: number) {

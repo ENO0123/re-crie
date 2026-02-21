@@ -88,7 +88,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
     }
   );
   
-  // ステータスマップを作成（デフォルトは"actual"）
+  // ステータスマップを作成（デフォルトは"prediction"＝予測。登録前は予測表示）
   const statusMap = new Map<string, StatusType>();
   monthStatuses?.forEach(ms => {
     statusMap.set(ms.yearMonth, ms.status);
@@ -103,7 +103,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
         id: 0,
         organizationId: 1,
         yearMonth,
-        status: localMonthStatuses.get(yearMonth) || statusMap.get(yearMonth) || "actual",
+        status: localMonthStatuses.get(yearMonth) || statusMap.get(yearMonth) || "prediction",
         createdBy: 1,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -128,7 +128,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
       }))
     : trpc.useQueries((t) =>
         last12Months.map((yearMonth) => {
-          const status = effectiveStatusMap.get(yearMonth) || "actual";
+          const status = effectiveStatusMap.get(yearMonth) || "prediction";
           return status === "actual"
             ? t.income.getByYearMonth({ yearMonth, organizationId })
             : t.income.getByStatus({ yearMonth, status, organizationId });
@@ -145,7 +145,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
       }))
     : trpc.useQueries((t) =>
         last12Months.map((yearMonth) => {
-          const status = effectiveStatusMap.get(yearMonth) || "actual";
+          const status = effectiveStatusMap.get(yearMonth) || "prediction";
           return status === "actual"
             ? t.expense.getByYearMonth({ yearMonth, organizationId })
             : t.expense.getByStatus({ yearMonth, status, organizationId });
@@ -405,7 +405,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                   <tr className="border-b border-green-300">
                     <th className="text-left py-2 px-4 sticky left-0 bg-green-50/30 min-w-[250px] w-[250px]">費目</th>
                     {displayIncomeRecords.map((record, index) => {
-                      const currentStatus = effectiveStatusMap.get(record.yearMonth) || "actual";
+                      const currentStatus = effectiveStatusMap.get(record.yearMonth) || "prediction";
                       return (
                         <th key={record.id || index} className="text-center py-2 px-4 whitespace-nowrap bg-green-100/50">
                           <div className="flex flex-col items-center gap-1">
@@ -493,7 +493,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                   <tr className="border-b border-red-300">
                     <th className="text-left py-2 px-4 sticky left-0 bg-red-50/30 min-w-[250px] w-[250px]">費目</th>
                     {displayExpenseRecords.map((record, index) => {
-                      const currentStatus = effectiveStatusMap.get(record.yearMonth) || "actual";
+                      const currentStatus = effectiveStatusMap.get(record.yearMonth) || "prediction";
                       return (
                         <th key={record.id || index} className="text-center py-2 px-4 whitespace-nowrap bg-red-100/50">
                           <div className="flex flex-col items-center gap-1">
@@ -581,7 +581,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                   <tr className="border-b border-blue-300">
                     <th className="text-left py-2 px-4 sticky left-0 bg-blue-50/30 min-w-[250px] w-[250px]">項目</th>
                     {cumulativeBalances.map((balance, index) => {
-                      const currentStatus = effectiveStatusMap.get(balance.yearMonth) || "actual";
+                      const currentStatus = effectiveStatusMap.get(balance.yearMonth) || "prediction";
                       return (
                         <th key={balance.yearMonth} className="text-center py-2 px-4 whitespace-nowrap bg-blue-100/50">
                           <div className="flex flex-col items-center gap-1">
