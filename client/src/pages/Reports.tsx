@@ -9,12 +9,12 @@ import { isMockupMode, mockupData, getMockupQueryOptions } from "@/lib/mockup";
 
 type StatusType = "actual" | "forecast" | "prediction";
 
-// 現在の月を中心に前6ヶ月と後5ヶ月の合計12ヶ月の年月リストを生成
+// 現在の月を中心に前6ヶ月と後6ヶ月の合計13ヶ月の年月リストを生成
 function generateLast12Months(): string[] {
   const months: string[] = [];
   const now = new Date();
-  // 前6ヶ月（過去6ヶ月）から後5ヶ月（未来5ヶ月）まで
-  for (let i = 6; i >= -5; i--) {
+  // 前6ヶ月（過去6ヶ月）から後6ヶ月（未来6ヶ月）まで
+  for (let i = 6; i >= -6; i--) {
     const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -23,13 +23,18 @@ function generateLast12Months(): string[] {
   return months;
 }
 
-const incomeLabels: Record<string, string> = {
+// 事業収入費目
+const businessIncomeLabels: Record<string, string> = {
   insuranceIncome: "保険入金",
   userBurdenTransfer: "【振込】利用者負担",
   userBurdenWithdrawal: "【口座振替】利用者負担",
   factoringIncome1: "【ファクタリング】入金(前月分)",
   factoringIncome2: "【ファクタリング】残金入金(3ヶ月前)",
   otherBusinessIncome: "【その他】事業収入",
+};
+
+// 財務収入費目
+const financialIncomeLabels: Record<string, string> = {
   representativeLoan: "代表者借入",
   shortTermLoan: "短期借入",
   longTermLoan: "長期借入",
@@ -37,7 +42,11 @@ const incomeLabels: Record<string, string> = {
   otherNonBusinessIncome: "【その他】事業外収入",
 };
 
-const expenseLabels: Record<string, string> = {
+// 全収入費目（後方互換・合計計算用）
+const incomeLabels: Record<string, string> = { ...businessIncomeLabels, ...financialIncomeLabels };
+
+// 事業支出費目
+const businessExpenseLabels: Record<string, string> = {
   personnelCost: "人件費",
   legalWelfare: "法定福利・福利厚生",
   advertising: "広告宣伝費",
@@ -52,7 +61,11 @@ const expenseLabels: Record<string, string> = {
   paymentInterest: "支払利息",
   miscellaneous: "雑費・その他",
   pettyCash: "小口補充",
-  cardPayment: "カード支払い",
+  cardPayment: "カード支払分引落額",
+};
+
+// 財務支出費目
+const financialExpenseLabels: Record<string, string> = {
   representativeLoanRepayment: "代表者借入金返済",
   shortTermLoanRepayment: "短期借入金返済",
   longTermLoanRepayment: "長期借入金返済",
@@ -60,6 +73,9 @@ const expenseLabels: Record<string, string> = {
   taxPayment: "税金納付",
   otherNonBusinessExpense: "その他(事業外支出)",
 };
+
+// 全支出費目（後方互換・合計計算用）
+const expenseLabels: Record<string, string> = { ...businessExpenseLabels, ...financialExpenseLabels };
 
 export default function Reports({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
   const [location] = useLocation();
@@ -192,12 +208,10 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
   const utils = trpc.useUtils();
   const updateStatusMutation = trpc.monthStatus.upsert.useMutation({
     onSuccess: () => {
-      // 両画面のデータを再取得
+      // ステータスに応じたキャッシュを全て無効化（getByStatus/getByYearMonth含む）
       utils.monthStatus.list.invalidate();
-      utils.income.list.invalidate();
-      utils.expense.list.invalidate();
-      incomeQueries.forEach(q => q.refetch());
-      expenseQueries.forEach(q => q.refetch());
+      utils.income.invalidate();
+      utils.expense.invalidate();
     },
   });
   
@@ -211,7 +225,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
       });
     } else {
       // DBモードの場合はmutationを実行
-      updateStatusMutation.mutate({ yearMonth, status });
+      updateStatusMutation.mutate({ yearMonth, status, organizationId });
     }
   };
 
@@ -316,26 +330,41 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
     };
   });
 
-  // 各月の収入合計と支出合計を計算
+  // 各月の収入合計と支出合計を計算（事業・財務別）
   const monthlyTotals = useMemo(() => {
     return last12Months.map((yearMonth, index) => {
       const incomeRecord = displayIncomeRecords[index];
       const expenseRecord = displayExpenseRecords[index];
-      
-      const incomeTotal = Object.keys(incomeLabels).reduce(
+
+      const businessIncomeTotal = Object.keys(businessIncomeLabels).reduce(
         (sum, key) => sum + ((incomeRecord[key as keyof typeof incomeRecord] as number) || 0),
         0
       );
-      
-      const expenseTotal = Object.keys(expenseLabels).reduce(
+      const financialIncomeTotal = Object.keys(financialIncomeLabels).reduce(
+        (sum, key) => sum + ((incomeRecord[key as keyof typeof incomeRecord] as number) || 0),
+        0
+      );
+      const incomeTotal = businessIncomeTotal + financialIncomeTotal;
+
+      const businessExpenseTotal = Object.keys(businessExpenseLabels).reduce(
         (sum, key) => sum + ((expenseRecord[key as keyof typeof expenseRecord] as number) || 0),
         0
       );
-      
+      const financialExpenseTotal = Object.keys(financialExpenseLabels).reduce(
+        (sum, key) => sum + ((expenseRecord[key as keyof typeof expenseRecord] as number) || 0),
+        0
+      );
+      const expenseTotal = businessExpenseTotal + financialExpenseTotal;
+
       return {
         yearMonth,
+        businessIncomeTotal,
+        financialIncomeTotal,
         incomeTotal,
+        businessExpenseTotal,
+        financialExpenseTotal,
         expenseTotal,
+        businessBalance: businessIncomeTotal - businessExpenseTotal,
         monthlyBalance: incomeTotal - expenseTotal,
       };
     });
@@ -396,14 +425,14 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
         {/* 収入セクション */}
         <Card className="border-green-200 bg-green-50/30">
           <CardHeader className="bg-green-100/50 border-b border-green-200">
-            <CardTitle className="text-green-900">収入費目別実績</CardTitle>
+            <CardTitle className="text-green-900">事業収入費目別実績</CardTitle>
           </CardHeader>
           <CardContent className="bg-green-50/20">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-green-300">
-                    <th className="text-left py-2 px-4 sticky left-0 bg-green-50/30 min-w-[250px] w-[250px]">費目</th>
+                    <th className="text-left py-2 px-4 sticky left-0 z-10 bg-green-50 min-w-[250px] w-[250px]">費目</th>
                     {displayIncomeRecords.map((record, index) => {
                       const currentStatus = effectiveStatusMap.get(record.yearMonth) || "prediction";
                       return (
@@ -427,36 +456,26 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                         </th>
                       );
                     })}
-                    <th className="text-right py-2 px-4 font-bold bg-green-200/50">合計</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(incomeLabels).map(([key, label]) => {
-                    const rowTotal = displayIncomeRecords.reduce(
-                      (sum, record) => sum + ((record[key as keyof typeof record] as number) || 0),
-                      0
-                    );
-
-                    return (
-                      <tr key={key} className="border-b border-green-200/50 hover:bg-green-100/30">
-                        <td className="py-2 px-4 font-medium sticky left-0 bg-green-50/30 min-w-[250px] w-[250px]">
-                          {label}
+                  {/* 事業収入 */}
+                  {Object.entries(businessIncomeLabels).map(([key, label]) => (
+                    <tr key={key} className="border-b border-green-200/50 hover:bg-green-100/30">
+                      <td className="py-2 px-4 font-medium sticky left-0 z-10 bg-green-50 min-w-[250px] w-[250px]">
+                        {label}
+                      </td>
+                      {displayIncomeRecords.map((record, index) => (
+                        <td key={record.id || index} className="text-right py-2 px-4 whitespace-nowrap">
+                          ¥{((record[key as keyof typeof record] as number) || 0).toLocaleString('ja-JP')}
                         </td>
-                        {displayIncomeRecords.map((record, index) => (
-                          <td key={record.id || index} className="text-right py-2 px-4 whitespace-nowrap">
-                            ¥{((record[key as keyof typeof record] as number) || 0).toLocaleString('ja-JP')}
-                          </td>
-                        ))}
-                        <td className="text-right py-2 px-4 font-bold bg-green-200/50 whitespace-nowrap">
-                          ¥{rowTotal.toLocaleString('ja-JP')}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      ))}
+                    </tr>
+                  ))}
                   <tr className="border-t-2 border-green-400 font-bold bg-green-200/50">
-                    <td className="py-2 px-4 sticky left-0 bg-green-200/50 min-w-[250px] w-[250px]">合計</td>
+                    <td className="py-2 px-4 sticky left-0 z-10 bg-green-200 min-w-[250px] w-[250px]">事業収入 小計</td>
                     {displayIncomeRecords.map((record, index) => {
-                      const total = Object.keys(incomeLabels).reduce(
+                      const total = Object.keys(businessIncomeLabels).reduce(
                         (sum, key) => sum + ((record[key as keyof typeof record] as number) || 0),
                         0
                       );
@@ -466,14 +485,41 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                         </td>
                       );
                     })}
-                    <td className="text-right py-2 px-4 bg-green-300/50 whitespace-nowrap">
-                      ¥{displayIncomeRecords.reduce((sum, record) => {
-                        return sum + Object.keys(incomeLabels).reduce(
-                          (s, key) => s + ((record[key as keyof typeof record] as number) || 0),
-                          0
-                        );
-                      }, 0).toLocaleString('ja-JP')}
+                  </tr>
+                  {/* 財務収入 */}
+                  <tr className="border-t border-green-300">
+                    <td className="py-2 px-4 font-semibold text-green-700 sticky left-0 z-10 bg-green-50 min-w-[250px] w-[250px]" colSpan={1}>
+                      ── 財務収入
                     </td>
+                    {displayIncomeRecords.map((_, index) => (
+                      <td key={index} className="bg-green-50/50" />
+                    ))}
+                  </tr>
+                  {Object.entries(financialIncomeLabels).map(([key, label]) => (
+                    <tr key={key} className="border-b border-green-200/50 hover:bg-green-100/30">
+                      <td className="py-2 px-4 font-medium sticky left-0 z-10 bg-green-50 min-w-[250px] w-[250px]">
+                        {label}
+                      </td>
+                      {displayIncomeRecords.map((record, index) => (
+                        <td key={record.id || index} className="text-right py-2 px-4 whitespace-nowrap">
+                          ¥{((record[key as keyof typeof record] as number) || 0).toLocaleString('ja-JP')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-green-400 font-bold bg-green-200/50">
+                    <td className="py-2 px-4 sticky left-0 z-10 bg-green-200 min-w-[250px] w-[250px]">財務収入 小計</td>
+                    {displayIncomeRecords.map((record, index) => {
+                      const total = Object.keys(financialIncomeLabels).reduce(
+                        (sum, key) => sum + ((record[key as keyof typeof record] as number) || 0),
+                        0
+                      );
+                      return (
+                        <td key={record.id || index} className="text-right py-2 px-4 whitespace-nowrap">
+                          ¥{total.toLocaleString('ja-JP')}
+                        </td>
+                      );
+                    })}
                   </tr>
                 </tbody>
               </table>
@@ -484,14 +530,14 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
         {/* 支出セクション */}
         <Card className="border-red-200 bg-red-50/30">
           <CardHeader className="bg-red-100/50 border-b border-red-200">
-            <CardTitle className="text-red-900">支出費目別実績</CardTitle>
+            <CardTitle className="text-red-900">事業支出費目別実績</CardTitle>
           </CardHeader>
           <CardContent className="bg-red-50/20">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-red-300">
-                    <th className="text-left py-2 px-4 sticky left-0 bg-red-50/30 min-w-[250px] w-[250px]">費目</th>
+                    <th className="text-left py-2 px-4 sticky left-0 z-10 bg-red-50 min-w-[250px] w-[250px]">費目</th>
                     {displayExpenseRecords.map((record, index) => {
                       const currentStatus = effectiveStatusMap.get(record.yearMonth) || "prediction";
                       return (
@@ -515,36 +561,26 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                         </th>
                       );
                     })}
-                    <th className="text-right py-2 px-4 font-bold bg-red-200/50">合計</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(expenseLabels).map(([key, label]) => {
-                    const rowTotal = displayExpenseRecords.reduce(
-                      (sum, record) => sum + ((record[key as keyof typeof record] as number) || 0),
-                      0
-                    );
-
-                    return (
-                      <tr key={key} className="border-b border-red-200/50 hover:bg-red-100/30">
-                        <td className="py-2 px-4 font-medium sticky left-0 bg-red-50/30 min-w-[250px] w-[250px]">
-                          {label}
+                  {/* 事業支出 */}
+                  {Object.entries(businessExpenseLabels).map(([key, label]) => (
+                    <tr key={key} className="border-b border-red-200/50 hover:bg-red-100/30">
+                      <td className="py-2 px-4 font-medium sticky left-0 z-10 bg-red-50 min-w-[250px] w-[250px]">
+                        {label}
+                      </td>
+                      {displayExpenseRecords.map((record, index) => (
+                        <td key={record.id || index} className="text-right py-2 px-4 whitespace-nowrap">
+                          ¥{((record[key as keyof typeof record] as number) || 0).toLocaleString('ja-JP')}
                         </td>
-                        {displayExpenseRecords.map((record, index) => (
-                          <td key={record.id || index} className="text-right py-2 px-4 whitespace-nowrap">
-                            ¥{((record[key as keyof typeof record] as number) || 0).toLocaleString('ja-JP')}
-                          </td>
-                        ))}
-                        <td className="text-right py-2 px-4 font-bold bg-red-200/50 whitespace-nowrap">
-                          ¥{rowTotal.toLocaleString('ja-JP')}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      ))}
+                    </tr>
+                  ))}
                   <tr className="border-t-2 border-red-400 font-bold bg-red-200/50">
-                    <td className="py-2 px-4 sticky left-0 bg-red-200/50 min-w-[250px] w-[250px]">合計</td>
+                    <td className="py-2 px-4 sticky left-0 z-10 bg-red-200 min-w-[250px] w-[250px]">事業支出 小計</td>
                     {displayExpenseRecords.map((record, index) => {
-                      const total = Object.keys(expenseLabels).reduce(
+                      const total = Object.keys(businessExpenseLabels).reduce(
                         (sum, key) => sum + ((record[key as keyof typeof record] as number) || 0),
                         0
                       );
@@ -554,14 +590,41 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                         </td>
                       );
                     })}
-                    <td className="text-right py-2 px-4 bg-red-300/50 whitespace-nowrap">
-                      ¥{displayExpenseRecords.reduce((sum, record) => {
-                        return sum + Object.keys(expenseLabels).reduce(
-                          (s, key) => s + ((record[key as keyof typeof record] as number) || 0),
-                          0
-                        );
-                      }, 0).toLocaleString('ja-JP')}
+                  </tr>
+                  {/* 財務支出 */}
+                  <tr className="border-t border-red-300">
+                    <td className="py-2 px-4 font-semibold text-red-700 sticky left-0 z-10 bg-red-50 min-w-[250px] w-[250px]" colSpan={1}>
+                      ── 財務支出
                     </td>
+                    {displayExpenseRecords.map((_, index) => (
+                      <td key={index} className="bg-red-50/50" />
+                    ))}
+                  </tr>
+                  {Object.entries(financialExpenseLabels).map(([key, label]) => (
+                    <tr key={key} className="border-b border-red-200/50 hover:bg-red-100/30">
+                      <td className="py-2 px-4 font-medium sticky left-0 z-10 bg-red-50 min-w-[250px] w-[250px]">
+                        {label}
+                      </td>
+                      {displayExpenseRecords.map((record, index) => (
+                        <td key={record.id || index} className="text-right py-2 px-4 whitespace-nowrap">
+                          ¥{((record[key as keyof typeof record] as number) || 0).toLocaleString('ja-JP')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-red-400 font-bold bg-red-200/50">
+                    <td className="py-2 px-4 sticky left-0 z-10 bg-red-200 min-w-[250px] w-[250px]">財務支出 小計</td>
+                    {displayExpenseRecords.map((record, index) => {
+                      const total = Object.keys(financialExpenseLabels).reduce(
+                        (sum, key) => sum + ((record[key as keyof typeof record] as number) || 0),
+                        0
+                      );
+                      return (
+                        <td key={record.id || index} className="text-right py-2 px-4 whitespace-nowrap">
+                          ¥{total.toLocaleString('ja-JP')}
+                        </td>
+                      );
+                    })}
                   </tr>
                 </tbody>
               </table>
@@ -579,7 +642,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-blue-300">
-                    <th className="text-left py-2 px-4 sticky left-0 bg-blue-50/30 min-w-[250px] w-[250px]">項目</th>
+                    <th className="text-left py-2 px-4 sticky left-0 z-10 bg-blue-50 min-w-[250px] w-[250px]">項目</th>
                     {cumulativeBalances.map((balance, index) => {
                       const currentStatus = effectiveStatusMap.get(balance.yearMonth) || "prediction";
                       return (
@@ -606,33 +669,74 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                   </tr>
                 </thead>
                 <tbody>
+                  {/* 事業収入 */}
                   <tr className="border-b border-blue-200/50 hover:bg-blue-100/30">
-                    <td className="py-2 px-4 font-medium sticky left-0 bg-blue-50/30 min-w-[250px] w-[250px]">
-                      収入合計
+                    <td className="py-2 px-4 font-medium sticky left-0 z-10 bg-blue-50 min-w-[250px] w-[250px]">
+                      事業収入
                     </td>
                     {cumulativeBalances.map((balance) => (
                       <td key={balance.yearMonth} className="text-right py-2 px-4 whitespace-nowrap">
-                        ¥{balance.incomeTotal.toLocaleString('ja-JP')}
+                        ¥{balance.businessIncomeTotal.toLocaleString('ja-JP')}
                       </td>
                     ))}
                   </tr>
+                  {/* 事業支出 */}
                   <tr className="border-b border-blue-200/50 hover:bg-blue-100/30">
-                    <td className="py-2 px-4 font-medium sticky left-0 bg-blue-50/30 min-w-[250px] w-[250px]">
-                      支出合計
+                    <td className="py-2 px-4 font-medium sticky left-0 z-10 bg-blue-50 min-w-[250px] w-[250px]">
+                      事業支出
                     </td>
                     {cumulativeBalances.map((balance) => (
                       <td key={balance.yearMonth} className="text-right py-2 px-4 whitespace-nowrap">
-                        ¥{balance.expenseTotal.toLocaleString('ja-JP')}
+                        ¥{balance.businessExpenseTotal.toLocaleString('ja-JP')}
                       </td>
                     ))}
                   </tr>
+                  {/* 事業収支 */}
                   <tr className="border-t-2 border-blue-400 font-bold bg-blue-200/50">
-                    <td className="py-2 px-4 sticky left-0 bg-blue-200/50 min-w-[250px] w-[250px]">
+                    <td className="py-2 px-4 sticky left-0 z-10 bg-blue-200 min-w-[250px] w-[250px]">
+                      事業収支
+                    </td>
+                    {cumulativeBalances.map((balance) => (
+                      <td
+                        key={balance.yearMonth}
+                        className={`text-right py-2 px-4 whitespace-nowrap ${
+                          balance.businessBalance >= 0 ? 'text-green-700' : 'text-red-700'
+                        }`}
+                      >
+                        ¥{balance.businessBalance.toLocaleString('ja-JP')}
+                      </td>
+                    ))}
+                  </tr>
+                  {/* 財務収入 */}
+                  <tr className="border-t border-blue-300 border-b border-blue-200/50 hover:bg-blue-100/30">
+                    <td className="py-2 px-4 font-medium sticky left-0 z-10 bg-blue-50 min-w-[250px] w-[250px]">
+                      財務収入
+                    </td>
+                    {cumulativeBalances.map((balance) => (
+                      <td key={balance.yearMonth} className="text-right py-2 px-4 whitespace-nowrap">
+                        ¥{balance.financialIncomeTotal.toLocaleString('ja-JP')}
+                      </td>
+                    ))}
+                  </tr>
+                  {/* 財務支出 */}
+                  <tr className="border-b border-blue-200/50 hover:bg-blue-100/30">
+                    <td className="py-2 px-4 font-medium sticky left-0 z-10 bg-blue-50 min-w-[250px] w-[250px]">
+                      財務支出
+                    </td>
+                    {cumulativeBalances.map((balance) => (
+                      <td key={balance.yearMonth} className="text-right py-2 px-4 whitespace-nowrap">
+                        ¥{balance.financialExpenseTotal.toLocaleString('ja-JP')}
+                      </td>
+                    ))}
+                  </tr>
+                  {/* 単月収支（全体） */}
+                  <tr className="border-t-2 border-blue-400 font-bold bg-blue-200/50">
+                    <td className="py-2 px-4 sticky left-0 z-10 bg-blue-200 min-w-[250px] w-[250px]">
                       単月収支
                     </td>
                     {cumulativeBalances.map((balance) => (
-                      <td 
-                        key={balance.yearMonth} 
+                      <td
+                        key={balance.yearMonth}
                         className={`text-right py-2 px-4 whitespace-nowrap ${
                           balance.monthlyBalance >= 0 ? 'text-green-700' : 'text-red-700'
                         }`}
@@ -642,12 +746,12 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                     ))}
                   </tr>
                   <tr className="border-t border-blue-300 font-bold bg-blue-200/30">
-                    <td className="py-2 px-4 sticky left-0 bg-blue-200/30 min-w-[250px] w-[250px]">
+                    <td className="py-2 px-4 sticky left-0 z-10 bg-blue-100 min-w-[250px] w-[250px]">
                       累計収支
                     </td>
                     {cumulativeBalances.map((balance) => (
-                      <td 
-                        key={balance.yearMonth} 
+                      <td
+                        key={balance.yearMonth}
                         className={`text-right py-2 px-4 whitespace-nowrap ${
                           balance.cumulativeBalance >= 0 ? 'text-green-700' : 'text-red-700'
                         }`}
@@ -657,12 +761,12 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
                     ))}
                   </tr>
                   <tr className="border-t-2 border-blue-400 font-bold bg-blue-300/50">
-                    <td className="py-2 px-4 sticky left-0 bg-blue-300/50 min-w-[250px] w-[250px]">
+                    <td className="py-2 px-4 sticky left-0 z-10 bg-blue-300 min-w-[250px] w-[250px]">
                       翌月繰越
                     </td>
                     {cumulativeBalances.map((balance) => (
-                      <td 
-                        key={balance.yearMonth} 
+                      <td
+                        key={balance.yearMonth}
                         className={`text-right py-2 px-4 whitespace-nowrap ${
                           balance.carryOver >= 0 ? 'text-green-700' : 'text-red-700'
                         }`}

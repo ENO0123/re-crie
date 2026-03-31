@@ -77,7 +77,8 @@ export default function DashboardLayout({
       return window.location.protocol === 'https:' ? '443' : '80';
     };
     const currentPort = getCurrentPort();
-    const isMockupMode = currentPort === "4000" && (!import.meta.env.VITE_OAUTH_PORTAL_URL || !import.meta.env.VITE_APP_ID);
+    const MOCK_PORTS = ['4000', '4002', '4003', '4004'];
+    const isMockupMode = MOCK_PORTS.includes(currentPort) && (!import.meta.env.VITE_OAUTH_PORTAL_URL || !import.meta.env.VITE_APP_ID);
     if (isMockupMode) {
       // モックアップ環境では、認証なしでコンテンツを表示
       return (

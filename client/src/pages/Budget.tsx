@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Loader2, Copy } from "lucide-react";
+import { Loader2, Copy, AlertTriangle } from "lucide-react";
 
 const MONTH_LABELS = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
 const ITEM_KEYS = ["totalSales", "insuranceIncome", "userBurden"] as const;
@@ -98,14 +98,66 @@ export default function Budget({ organizationId: propOrganizationId }: { organiz
   };
 
   const updateCell = (yearMonth: string, item: (typeof ITEM_KEYS)[number], value: string) => {
-    setTableData((prev) => ({
-      ...prev,
-      [yearMonth]: {
-        ...(prev[yearMonth] ?? emptyMonthData()),
-        [item]: value,
-      },
-    }));
+    setTableData((prev) => {
+      const current = prev[yearMonth] ?? emptyMonthData();
+      const updated = { ...current, [item]: value };
+
+      // 合計売上予算 → 保険入金(90%)・利用者請求(10%) を自動計算
+      if (item === "totalSales") {
+        const total = normalize(value);
+        if (total > 0) {
+          const insurance = Math.round(total * 0.9);
+          const burden = total - insurance;
+          updated.insuranceIncome = insurance.toLocaleString("ja-JP");
+          updated.userBurden = burden.toLocaleString("ja-JP");
+        }
+      }
+
+      // 保険入金 or 利用者請求 → 合計売上予算を合計で更新
+      if (item === "insuranceIncome" || item === "userBurden") {
+        const insurance = normalize(item === "insuranceIncome" ? value : current.insuranceIncome);
+        const burden = normalize(item === "userBurden" ? value : current.userBurden);
+        if (insurance > 0 || burden > 0) {
+          updated.totalSales = (insurance + burden).toLocaleString("ja-JP");
+        }
+      }
+
+      return { ...prev, [yearMonth]: updated };
+    });
   };
+
+  // 3項目の整合性チェック（不一致時に行をハイライト）
+  const isRowMismatch = (row: MonthData) => {
+    const total = normalize(row.totalSales);
+    const insurance = normalize(row.insuranceIncome);
+    const burden = normalize(row.userBurden);
+    if (total === 0 && insurance === 0 && burden === 0) return false;
+    if (total === 0 || (insurance === 0 && burden === 0)) return false;
+    return Math.abs(total - (insurance + burden)) > 0;
+  };
+
+  // 不一致月の詳細リスト
+  const mismatchDetails = useMemo(() => {
+    return yearMonths
+      .map((ym, index) => {
+        const row = tableData[ym] ?? emptyMonthData();
+        if (!isRowMismatch(row)) return null;
+        const total = normalize(row.totalSales);
+        const insurance = normalize(row.insuranceIncome);
+        const burden = normalize(row.userBurden);
+        const subTotal = insurance + burden;
+        const diff = total - subTotal;
+        return { label: MONTH_LABELS[index], total, insurance, burden, subTotal, diff };
+      })
+      .filter(Boolean) as {
+        label: string;
+        total: number;
+        insurance: number;
+        burden: number;
+        subTotal: number;
+        diff: number;
+      }[];
+  }, [tableData, yearMonths]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -233,8 +285,9 @@ export default function Budget({ organizationId: propOrganizationId }: { organiz
                 <tbody>
                   {yearMonths.map((yearMonth, index) => {
                     const row = tableData[yearMonth] ?? emptyMonthData();
+                    const mismatch = isRowMismatch(row);
                     return (
-                      <tr key={yearMonth} className="border-b border-border/50 hover:bg-muted/30">
+                      <tr key={yearMonth} className={`border-b border-border/50 hover:bg-muted/30 ${mismatch ? "bg-yellow-50" : ""}`}>
                         <td className="p-2 font-medium text-muted-foreground">{MONTH_LABELS[index]}</td>
                         <td className="p-1">
                           <Input
@@ -263,19 +316,24 @@ export default function Budget({ organizationId: propOrganizationId }: { organiz
                             onChange={(e) => updateCell(yearMonth, "userBurden", e.target.value)}
                           />
                         </td>
-                        <td className="p-1 w-[100px]">
-                          {index > 0 ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 text-muted-foreground hover:text-foreground"
-                              onClick={() => handleCopyFromPrevMonth(yearMonth, yearMonths[index - 1])}
-                            >
-                              <Copy className="w-3.5 h-3.5 mr-1" />
-                              前月コピー
-                            </Button>
-                          ) : null}
+                        <td className="p-1 w-[160px]">
+                          <div className="flex items-center gap-1">
+                            {index > 0 ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-muted-foreground hover:text-foreground"
+                                onClick={() => handleCopyFromPrevMonth(yearMonth, yearMonths[index - 1])}
+                              >
+                                <Copy className="w-3.5 h-3.5 mr-1" />
+                                前月コピー
+                              </Button>
+                            ) : null}
+                            {mismatch && (
+                              <span className="text-xs text-yellow-700 font-medium whitespace-nowrap">合計不一致</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -283,6 +341,33 @@ export default function Budget({ organizationId: propOrganizationId }: { organiz
                 </tbody>
               </table>
             </div>
+
+            {/* 不一致エラーバナー */}
+            {mismatchDetails.length > 0 && (
+              <div className="relative">
+                {/* 吹き出しの三角（テーブル側を指す） */}
+                <div className="flex justify-start pl-6">
+                  <div className="w-0 h-0 border-l-[8px] border-r-[8px] border-b-[8px] border-l-transparent border-r-transparent border-b-yellow-300" />
+                </div>
+                <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-4 space-y-2">
+                  <div className="flex items-center gap-2 text-yellow-800 font-semibold text-sm">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    合計売上予算と内訳の合計が一致しない月があります
+                  </div>
+                  <ul className="space-y-1.5 pl-6">
+                    {mismatchDetails.map((d) => (
+                      <li key={d.label} className="text-xs text-yellow-900">
+                        <span className="font-semibold">{d.label}：</span>
+                        合計売上予算 ¥{d.total.toLocaleString("ja-JP")} ≠ 保険入金 ¥{d.insurance.toLocaleString("ja-JP")} + 利用者請求 ¥{d.burden.toLocaleString("ja-JP")} = ¥{d.subTotal.toLocaleString("ja-JP")}
+                        <span className={`ml-1 font-semibold ${d.diff > 0 ? "text-red-600" : "text-blue-600"}`}>
+                          （差額 {d.diff > 0 ? "+" : ""}¥{d.diff.toLocaleString("ja-JP")}）
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
 
             <div className="pt-4 border-t">
               <Button
@@ -296,7 +381,7 @@ export default function Budget({ organizationId: propOrganizationId }: { organiz
                     保存中...
                   </>
                 ) : (
-                  "1年分を保存"
+                  "保存"
                 )}
               </Button>
             </div>

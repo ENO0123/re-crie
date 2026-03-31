@@ -2,10 +2,12 @@
  * モックアップ環境の検出とダミーデータの提供
  */
 
-// ポート番号に基づいてモックモードを判定（4000=モック、4001=DB接続）
+// ポート番号に基づいてモックモードを判定
+// 4000=editor, 4002=headquarters, 4003=admin, 4004=viewer → モック
+// 4001=DB接続モード
 const currentPort = typeof window !== 'undefined' ? window.location.port : '';
-// ポート4001の場合は必ずDB接続モード、ポート4000の場合はモックモード
-export const isMockupMode = currentPort === '4000';
+const MOCK_PORTS = ['4000', '4002', '4003', '4004'];
+export const isMockupMode = MOCK_PORTS.includes(currentPort);
 
 /**
  * モックアップ環境ではクエリを無効化し、ダミーデータを返すためのオプションを返す

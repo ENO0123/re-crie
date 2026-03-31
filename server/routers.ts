@@ -622,8 +622,8 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
-        
-        return db.createBillingData({
+
+        const result = await db.createBillingData({
           organizationId: orgId,
           billingYearMonth: formatYYYYMM(input.billingYearMonth),
           serviceYearMonth: formatYYYYMM(input.serviceYearMonth),
@@ -636,6 +636,21 @@ export const appRouter = router({
           userBurdenWithdrawal: normalizeNumericInput(input.userBurdenWithdrawal),
           createdBy: ctx.user.id,
         });
+
+        // 請求データ登録月の翌月を自動的に「見込」に設定
+        const billingYM = formatYYYYMM(input.billingYearMonth); // YYYYMM形式
+        const billingYear = parseInt(billingYM.slice(0, 4), 10);
+        const billingMonth = parseInt(billingYM.slice(4, 6), 10);
+        const nextMonthDate = new Date(billingYear, billingMonth, 1); // billingMonthはすでに1-12
+        const nextYearMonth = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}`;
+        await upsertMonthStatus({
+          organizationId: orgId,
+          yearMonth: nextYearMonth,
+          status: "forecast",
+          createdBy: ctx.user.id,
+        }).catch(() => {}); // ステータス更新失敗は無視
+
+        return result;
       }),
     
     update: editorProcedure
@@ -917,13 +932,12 @@ export const appRouter = router({
       .input(z.object({
         yearMonth: z.string(),
         status: z.enum(["actual", "forecast", "prediction"]),
+        organizationId: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!ctx.user.organizationId) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Organization not set' });
-        }
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
         return upsertMonthStatus({
-          organizationId: ctx.user.organizationId,
+          organizationId: orgId,
           yearMonth: input.yearMonth,
           status: input.status,
           createdBy: ctx.user.id,

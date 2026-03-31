@@ -11,18 +11,18 @@ import { eq, and, gte, lte, sql } from "drizzle-orm";
 type StatusType = "actual" | "forecast" | "prediction";
 
 /**
- * 年月文字列から前3ヶ月の年月リストを生成
+ * レコード一覧から対象年月より前の直近N件を返す
+ * （未来月の予測時も実データが存在する直近月を使う）
  */
-function getPrevious3Months(yearMonth: string): string[] {
-  const [year, month] = yearMonth.split('-').map(Number);
-  const months: string[] = [];
-  for (let i = 1; i <= 3; i++) {
-    const date = new Date(year, month - 1 - i, 1);
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    months.push(`${y}-${m}`);
-  }
-  return months;
+function getMostRecentRecordsBefore<T extends { yearMonth: string }>(
+  records: T[],
+  targetYearMonth: string,
+  n: number = 3
+): T[] {
+  return records
+    .filter(r => r.yearMonth < targetYearMonth)
+    .sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
+    .slice(0, n);
 }
 
 /**
@@ -281,11 +281,10 @@ export async function calculateIncomeByStatus(
   if (status === "forecast") {
     // 見込み: 請求データとファクタリング設定から計算、なければ前3ヶ月平均
     const billingIncome = await calculateIncomeFromBilling(organizationId, targetYearMonth);
-    
-    // 前3ヶ月のデータを取得
-    const prev3Months = getPrevious3Months(targetYearMonth);
-    const prev3MonthsRecords = await getIncomeRecords(organizationId, 12);
-    const prev3MonthsData = prev3MonthsRecords.filter(r => prev3Months.includes(r.yearMonth));
+
+    // 直近3ヶ月のデータを取得（実データが存在する直近月を使用）
+    const prev3MonthsRecords = await getIncomeRecords(organizationId, 24);
+    const prev3MonthsData = getMostRecentRecordsBefore(prev3MonthsRecords, targetYearMonth, 3);
     
     // 借入返済管理から借入データを取得
     const loanData = await calculateLoanRepaymentsFromLoans(organizationId, targetYearMonth);
@@ -308,12 +307,10 @@ export async function calculateIncomeByStatus(
     };
   }
 
-  // 予測: 前3ヶ月平均、長期借入のみ借入返済管理から取得
-  const prev3Months = getPrevious3Months(targetYearMonth);
-  console.log(`[calculateIncomeByStatus] prediction - targetYearMonth: ${targetYearMonth}, prev3Months:`, prev3Months);
-  const prev3MonthsRecords = await getIncomeRecords(organizationId, 12);
-  const prev3MonthsData = prev3MonthsRecords.filter(r => prev3Months.includes(r.yearMonth));
-  console.log(`[calculateIncomeByStatus] prediction - found ${prev3MonthsData.length} records for prev3Months`);
+  // 予測: 直近3ヶ月平均、長期借入のみ借入返済管理から取得
+  const prev3MonthsRecords = await getIncomeRecords(organizationId, 24);
+  const prev3MonthsData = getMostRecentRecordsBefore(prev3MonthsRecords, targetYearMonth, 3);
+  console.log(`[calculateIncomeByStatus] prediction - targetYearMonth: ${targetYearMonth}, using ${prev3MonthsData.length} recent records:`, prev3MonthsData.map(r => r.yearMonth));
   
   // 長期借入: 借入返済管理から取得（データがなければ0）
   const longTermLoan = await getLongTermLoanFromLoans(organizationId, targetYearMonth);
@@ -396,10 +393,9 @@ export async function calculateExpenseByStatus(
   }
 
   if (status === "forecast") {
-    // 見込み: 借入返済管理から取得、なければ前3ヶ月平均
-    const prev3Months = getPrevious3Months(targetYearMonth);
-    const prev3MonthsRecords = await getExpenseRecords(organizationId, 12);
-    const prev3MonthsData = prev3MonthsRecords.filter(r => prev3Months.includes(r.yearMonth));
+    // 見込み: 借入返済管理から取得、なければ直近3ヶ月平均
+    const prev3MonthsRecords = await getExpenseRecords(organizationId, 24);
+    const prev3MonthsData = getMostRecentRecordsBefore(prev3MonthsRecords, targetYearMonth, 3);
     
     // 借入返済管理から借入返済データを取得
     const loanData = await calculateLoanRepaymentsFromLoans(organizationId, targetYearMonth);
@@ -429,12 +425,10 @@ export async function calculateExpenseByStatus(
     };
   }
 
-  // 予測: 前3ヶ月平均、長期借入のみ借入返済管理から取得
-  const prev3Months = getPrevious3Months(targetYearMonth);
-  console.log(`[calculateExpenseByStatus] prediction - targetYearMonth: ${targetYearMonth}, prev3Months:`, prev3Months);
-  const prev3MonthsRecords = await getExpenseRecords(organizationId, 12);
-  const prev3MonthsData = prev3MonthsRecords.filter(r => prev3Months.includes(r.yearMonth));
-  console.log(`[calculateExpenseByStatus] prediction - found ${prev3MonthsData.length} records for prev3Months`);
+  // 予測: 直近3ヶ月平均、長期借入のみ借入返済管理から取得
+  const prev3MonthsRecords = await getExpenseRecords(organizationId, 24);
+  const prev3MonthsData = getMostRecentRecordsBefore(prev3MonthsRecords, targetYearMonth, 3);
+  console.log(`[calculateExpenseByStatus] prediction - targetYearMonth: ${targetYearMonth}, using ${prev3MonthsData.length} recent records:`, prev3MonthsData.map(r => r.yearMonth));
   
   // 長期借入のみ借入返済管理から取得
   const loanData = await calculateLoanRepaymentsFromLoans(organizationId, targetYearMonth);

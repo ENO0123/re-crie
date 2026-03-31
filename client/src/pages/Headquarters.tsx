@@ -1,14 +1,32 @@
 import { trpc } from "@/lib/trpc";
+import { isMockupMode, getMockupQueryOptions } from "@/lib/mockup";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Building2, ExternalLink } from "lucide-react";
+import { Loader2, Building2, LayoutDashboard, Wallet, TrendingUp, TrendingDown, Target, FileText } from "lucide-react";
 import { useLocation } from "wouter";
+
+const quickLinks = [
+  { icon: LayoutDashboard, label: "ダッシュボード", path: "/dashboard" },
+  { icon: Wallet, label: "口座残高登録", path: "/bank-balance" },
+  { icon: TrendingUp, label: "入金実績登録", path: "/income" },
+  { icon: TrendingDown, label: "支出実績登録", path: "/expense" },
+  { icon: Target, label: "予算入力", path: "/budget" },
+  { icon: FileText, label: "実績・見込・予測詳細確認", path: "/reports" },
+];
+
+const mockOrganizations = [
+  { id: 1, name: "サンプル事業所A", createdAt: new Date(), updatedAt: new Date() },
+  { id: 2, name: "サンプル事業所B", createdAt: new Date(), updatedAt: new Date() },
+];
 
 export default function Headquarters() {
   const [, setLocation] = useLocation();
-  const { data: organizations, isLoading } = trpc.organization.list.useQuery();
+  const { data: organizations, isLoading } = trpc.organization.list.useQuery(
+    undefined,
+    getMockupQueryOptions(mockOrganizations),
+  );
 
-  if (isLoading) {
+  if (!isMockupMode && isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -16,22 +34,17 @@ export default function Headquarters() {
     );
   }
 
-  const handleOrganizationClick = (organizationId: number) => {
-    // 組織IDを含むURLでダッシュボードに遷移
-    setLocation(`/${organizationId}/dashboard`);
-  };
-
   return (
     <div className="container py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">本部管理画面</h1>
         <p className="text-muted-foreground">
-          各法人のアカウントへアクセスできます
+          各法人を選択し、各機能へアクセスできます
         </p>
       </div>
 
       {organizations && organizations.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="space-y-6">
           {organizations.map((org) => (
             <Card key={org.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
@@ -39,19 +52,22 @@ export default function Headquarters() {
                   <Building2 className="w-5 h-5 text-primary" />
                   <CardTitle>{org.name}</CardTitle>
                 </div>
-                <CardDescription>
-                  組織ID: {org.id}
-                </CardDescription>
+                <CardDescription>組織ID: {org.id}</CardDescription>
               </CardHeader>
               <CardContent>
-                <Button
-                  onClick={() => handleOrganizationClick(org.id)}
-                  className="w-full"
-                  variant="default"
-                >
-                  <ExternalLink className="w-4 h-4 mr-2" />
-                  この組織のダッシュボードを開く
-                </Button>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                  {quickLinks.map((link) => (
+                    <Button
+                      key={link.path}
+                      variant="outline"
+                      className="flex flex-col h-auto py-3 gap-1.5 text-xs"
+                      onClick={() => setLocation(`/${org.id}${link.path}`)}
+                    >
+                      <link.icon className="w-4 h-4" />
+                      <span className="text-center leading-tight">{link.label}</span>
+                    </Button>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           ))}
