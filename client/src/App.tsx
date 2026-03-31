@@ -21,12 +21,16 @@ import Login from "./pages/Login";
 import Headquarters from "./pages/Headquarters";
 import ChangePassword from "./pages/ChangePassword";
 
-// headquarters ロールのユーザーを /headquarters にリダイレクト
+// ロールに応じて適切なページへリダイレクト
 function HeadquartersRedirect() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   if (user?.role === 'headquarters') {
     setLocation('/headquarters');
+    return null;
+  }
+  if (user?.organizationId) {
+    setLocation(`/${user.organizationId}/dashboard`);
     return null;
   }
   return <Dashboard />;
@@ -114,55 +118,10 @@ function Router() {
         )}
       </Route>
       
-      {/* 後方互換性のため、既存のルートも残す（各社アカウント用） */}
+      {/* テナントIDなしのルート: / のみ許可（HQ→リダイレクト、一般→ダッシュボード）。それ以外は404 */}
       <Route path={"/"}>
         <DashboardLayout>
           <HeadquartersRedirect />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/bank-balance"}>
-        <DashboardLayout>
-          <BankBalance />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/income"}>
-        <DashboardLayout>
-          <Income />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/expense"}>
-        <DashboardLayout>
-          <Expense />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/billing"}>
-        <DashboardLayout>
-          <BillingData />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/billing/csv-upload"}>
-        <DashboardLayout>
-          <CSVUpload />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/factoring"}>
-        <DashboardLayout>
-          <Factoring />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/reports"}>
-        <DashboardLayout>
-          <Reports />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/budget"}>
-        <DashboardLayout>
-          <Budget />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/loans"}>
-        <DashboardLayout>
-          <Loans />
         </DashboardLayout>
       </Route>
       

@@ -173,7 +173,7 @@ export default function BillingData({ organizationId: propOrganizationId }: { or
             請求データの一覧表示・検索・編集・削除ができます
           </p>
         </div>
-        <Button onClick={() => setLocation("/billing/csv-upload")}>
+        <Button onClick={() => setLocation(organizationId ? `/${organizationId}/billing/csv-upload` : "/billing/csv-upload")}>
           <Plus className="w-4 h-4 mr-2" />
           CSVアップロード
         </Button>

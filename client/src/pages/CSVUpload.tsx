@@ -60,7 +60,7 @@ interface ValidationResult {
   };
 }
 
-export default function CSVUpload() {
+export default function CSVUpload({ organizationId }: { organizationId?: number } = {}) {
   const [file, setFile] = useState<File | null>(null);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
@@ -129,7 +129,7 @@ export default function CSVUpload() {
         String.fromCharCode(...new Uint8Array(arrayBuffer))
       );
 
-      validateMutation.mutate({ csvData: base64 });
+      validateMutation.mutate({ csvData: base64, organizationId });
     };
     reader.onerror = () => {
       toast.error("ファイルの読み込みに失敗しました");
@@ -143,7 +143,7 @@ export default function CSVUpload() {
       return;
     }
 
-    uploadMutation.mutate({ rows: validationResult.validRows });
+    uploadMutation.mutate({ rows: validationResult.validRows, organizationId });
   };
 
   return (

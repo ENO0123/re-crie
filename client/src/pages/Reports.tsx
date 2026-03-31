@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { skipToken } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -98,7 +99,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
   
   // 月ごとのステータスを取得
   const { data: monthStatuses, isLoading: loadingStatuses } = trpc.monthStatus.list.useQuery(
-    { yearMonths: last12Months, organizationId },
+    organizationId ? { yearMonths: last12Months, organizationId } : skipToken,
     {
       ...getMockupQueryOptions(mockupData.monthStatuses),
     }
@@ -145,6 +146,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
     : trpc.useQueries((t) =>
         last12Months.map((yearMonth) => {
           const status = effectiveStatusMap.get(yearMonth) || "prediction";
+          if (!organizationId) return t.income.getByYearMonth(skipToken);
           return status === "actual"
             ? t.income.getByYearMonth({ yearMonth, organizationId })
             : t.income.getByStatus({ yearMonth, status, organizationId });
@@ -162,6 +164,7 @@ export default function Reports({ organizationId: propOrganizationId }: { organi
     : trpc.useQueries((t) =>
         last12Months.map((yearMonth) => {
           const status = effectiveStatusMap.get(yearMonth) || "prediction";
+          if (!organizationId) return t.expense.getByYearMonth(skipToken);
           return status === "actual"
             ? t.expense.getByYearMonth({ yearMonth, organizationId })
             : t.expense.getByStatus({ yearMonth, status, organizationId });
