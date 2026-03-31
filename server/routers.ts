@@ -694,6 +694,93 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         return db.deleteBillingDataBatch(input.ids);
       }),
+
+    validateCSV: editorProcedure
+      .input(z.object({
+        csvData: z.string(), // base64エンコードされたCSVデータ
+        organizationId: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+        const { parseAndValidateCSV } = await import('./csvParser');
+
+        // base64をBufferに変換
+        const buffer = Buffer.from(input.csvData, 'base64');
+
+        // 既存データを取得して重複チェックに使用
+        const existing = await db.getBillingDataList(orgId, 1, 10000);
+        const existingData = existing.data.map((d: any) => ({
+          billingYearMonth: d.billingYearMonth,
+          serviceYearMonth: d.serviceYearMonth,
+          userName: d.userName,
+        }));
+
+        const result = parseAndValidateCSV(buffer, existingData);
+
+        return {
+          ...result,
+          summary: {
+            totalRows: result.validRows.length + result.errors.length + result.duplicates.length,
+            validCount: result.validRows.length,
+            errorCount: result.errors.length,
+            duplicateCount: result.duplicates.length,
+          },
+        };
+      }),
+
+    uploadCSV: editorProcedure
+      .input(z.object({
+        rows: z.array(z.object({
+          rowNumber: z.number(),
+          billingYearMonth: z.string(),
+          serviceYearMonth: z.string(),
+          userName: z.string(),
+          totalCost: z.number(),
+          insurancePayment: z.number(),
+          publicPayment: z.number(),
+          reduction: z.number(),
+          userBurdenTransfer: z.number(),
+          userBurdenWithdrawal: z.number(),
+        })),
+        organizationId: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const orgId = getEffectiveOrganizationId(ctx.user, input.organizationId);
+
+        // 全行をDBに挿入
+        for (const row of input.rows) {
+          await db.createBillingData({
+            organizationId: orgId,
+            billingYearMonth: row.billingYearMonth,
+            serviceYearMonth: row.serviceYearMonth,
+            userName: row.userName,
+            totalCost: row.totalCost,
+            insurancePayment: row.insurancePayment,
+            publicPayment: row.publicPayment,
+            reduction: row.reduction,
+            userBurdenTransfer: row.userBurdenTransfer,
+            userBurdenWithdrawal: row.userBurdenWithdrawal,
+            createdBy: ctx.user.id,
+          });
+        }
+
+        // 登録された請求年月の翌月を一意に集めて「見込」に設定
+        const billingMonths = [...new Set(input.rows.map(r => r.billingYearMonth))];
+        for (const billingYM of billingMonths) {
+          const year = parseInt(billingYM.slice(0, 4), 10);
+          const month = parseInt(billingYM.slice(4, 6), 10);
+          const nextMonthDate = new Date(year, month, 1);
+          const nextYearMonth = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}`;
+          await upsertMonthStatus({
+            organizationId: orgId,
+            yearMonth: nextYearMonth,
+            status: "forecast",
+            createdBy: ctx.user.id,
+          }).catch(() => {});
+        }
+
+        return { insertedCount: input.rows.length };
+      }),
   }),
 
   // Factoring settings operations
