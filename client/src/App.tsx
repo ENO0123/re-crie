@@ -1,7 +1,8 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { StatusProvider } from "./contexts/StatusContext";
@@ -19,6 +20,17 @@ import Loans from "./pages/Loans";
 import Login from "./pages/Login";
 import Headquarters from "./pages/Headquarters";
 import ChangePassword from "./pages/ChangePassword";
+
+// headquarters ロールのユーザーを /headquarters にリダイレクト
+function HeadquartersRedirect() {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  if (user?.role === 'headquarters') {
+    setLocation('/headquarters');
+    return null;
+  }
+  return <Dashboard />;
+}
 
 function Router() {
   return (
@@ -105,7 +117,7 @@ function Router() {
       {/* 後方互換性のため、既存のルートも残す（各社アカウント用） */}
       <Route path={"/"}>
         <DashboardLayout>
-          <Dashboard />
+          <HeadquartersRedirect />
         </DashboardLayout>
       </Route>
       <Route path={"/bank-balance"}>
