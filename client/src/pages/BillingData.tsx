@@ -27,7 +27,7 @@ import { Loader2, Search, Plus, Trash2, Edit } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function BillingData({ organizationId: propOrganizationId }: { organizationId?: number } = {}) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user } = useAuth();
   
   // URLから組織IDを取得（/:organizationId/billing形式）
